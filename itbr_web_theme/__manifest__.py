@@ -37,6 +37,7 @@
             'itbr_web_theme/static/src/core/**/*.js',
             'itbr_web_theme/static/src/webclient/**/*.xml',
             'itbr_web_theme/static/src/webclient/**/*.scss',
+            'itbr_web_theme/static/src/webclient/*.js',
             'itbr_web_theme/static/src/webclient/**/*.js',
             'itbr_web_theme/static/src/views/**/*.scss',
         ],

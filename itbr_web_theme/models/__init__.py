@@ -5,3 +5,4 @@ from . import web_editor_assets
 from . import ir_attachment
 from . import ir_asset
 from . import ir_http
+from . import ir_ui_view

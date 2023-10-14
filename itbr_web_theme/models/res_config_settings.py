@@ -43,6 +43,10 @@ class ResConfigSettings(models.TransientModel):
         string='Theme AppBar Background'
     )
 
+    web_window_title = fields.Char(
+        string='Window Title',
+    )
+
     # ----------------------------------------------------------
     # Action
     # ----------------------------------------------------------
@@ -62,6 +66,8 @@ class ResConfigSettings(models.TransientModel):
 
     def set_values(self):
         res = super(ResConfigSettings, self).set_values()
+        ir_config = self.env['ir.config_parameter'].sudo()
+        ir_config.set_param('web.base.title', self.web_window_title or "")
         variables = [
             'o-brand-odoo',
             'o-brand-primary',
@@ -97,6 +103,8 @@ class ResConfigSettings(models.TransientModel):
     @api.model
     def get_values(self):
         res = super(ResConfigSettings, self).get_values()
+        ir_config = self.env['ir.config_parameter'].sudo()
+        web_window_title = ir_config.get_param('web.base.title', default='IT Solution')
         variables = [
             'o-brand-odoo',
             'o-brand-primary',
@@ -113,5 +121,6 @@ class ResConfigSettings(models.TransientModel):
             'theme_color_menu': colors['mk-menu-color'],
             'theme_color_appbar_color': colors['mk-appbar-color'],
             'theme_color_appbar_background': colors['mk-appbar-background'],
+            'web_window_title':web_window_title
         })
         return res
