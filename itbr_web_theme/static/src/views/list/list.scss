@@ -12,3 +12,15 @@
         color: $white;
     }
 }
+
+.nav-link, .btn-link, .btn-secondary:hover, .text-odoo {
+    color: $o-brand-primary !important;
+}
+
+.btn-secondary {
+    color: $o-brand-odoo;
+}
+
+.btn-secondary:hover{
+    color: $o-brand-primary;
+}

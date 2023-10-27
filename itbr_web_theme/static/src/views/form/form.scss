@@ -11,4 +11,7 @@
         .o_input:not(:hover):not(:focus) {
         border-color: $gray-600 !important;
     }
+    a {
+        color: $o-brand-primary;
+    }
 }
