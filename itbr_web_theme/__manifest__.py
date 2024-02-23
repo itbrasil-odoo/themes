@@ -1,7 +1,7 @@
 {
     'name': 'IT Brasil Backend Theme',
     'summary': 'Odoo Community Backend Theme',
-    'version': '16.0.2.0.0',
+    'version': '16.0.2.0.1',
     'category': 'Themes/Backend',
     'license': 'LGPL-3',
     'author': 'IT Brasil',
@@ -18,6 +18,7 @@
         'templates/webclient.xml',
         'views/res_config_settings.xml',
         'views/res_users.xml',
+        'views/web_login.xml'
     ],
     'assets': {
         'web._assets_primary_variables': [

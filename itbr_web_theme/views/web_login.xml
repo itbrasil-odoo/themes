@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <template id="web_layout_inherit" inherit_id="web.layout" name="Web Layout">
+        <xpath expr="//head/link[@type='image/x-icon']" position="replace">
+            <link type="image/x-icon" rel="shortcut icon" t-att-href="x_icon or '/itbr_web_theme/static/description/logo.png'"/>
+        </xpath>
+        <xpath expr="//head/title" position="replace">
+            <title t-esc="title or 'IT Solution'"/>
+        </xpath>
+        <xpath expr="//head/script[last()]" position="after">
+            <style>
+                .oe_login_buttons .btn-primary {
+                    color: #FFFFFF;
+                    background-color: #3b4ba7 !important;
+                    border-color: #3b4ba7 !important;
+                }
+                .oe_login_buttons .btn-primary:hover {
+                    color: #FFFFFF;
+                    background-color: #202459 !important;
+                    border-color: #202459 !important;
+                }
+                .oe_login_buttons a, .oe_login_buttons .btn-link, .login--footer a{
+                    color: #3b4ba7 !important;
+                }
+                .oe_login_buttons a:hover, .oe_login_buttons .btn-link:hover, .login--footer a:hover{
+                    color: #202459 !important;
+                }
+                .oe_login_form .form-control:focus {
+                    border-color: #3b4ba7 !important;
+                    box-shadow: 0 0 0 0.25rem rgba(59, 75, 167, 0.25) !important;
+                }
+            </style>
+        </xpath>
+    </template>
+    <template id="web_login_layout_inherit" inherit_id="web.login_layout" name="Web Login Layout">
+        <xpath expr="//div[hasclass('card-body')]//div[last()]" position="replace">
+            <t t-set="body_classname" t-value="'bg-200'"/>
+            <t t-set="disable_database_manager" t-value="True" />
+            <div class="text-center small login--footer" t-if="not disable_footer">
+                <a href="https://www.itbrasil.com.br?utm_source=db&amp;utm_medium=auth" target="_blank">Powered by <span>IT Brasil</span></a>
+            </div>
+        </xpath>
+    </template>
+</odoo>
