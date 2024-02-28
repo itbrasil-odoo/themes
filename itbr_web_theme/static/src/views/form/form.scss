@@ -1,0 +1,27 @@
+.o_form_view {
+    &:not(.o_field_highlight)
+        .o_field_widget:not(.o_field_invalid):not(.o_field_CopyClipboardChar)
+        .o_input:not(:hover):not(:focus) {
+        border-color: $gray-200 !important;
+    }
+    &:not(.o_field_highlight)
+        .o_required_modifier.o_field_widget:not(.o_field_invalid):not(
+            .o_field_CopyClipboardChar
+        )
+        .o_input:not(:hover):not(:focus) {
+        border-color: $gray-600 !important;
+    }
+    a {
+        color: $o-brand-primary !important;
+    }
+}
+
+.o-form-buttonbox .btn.oe_stat_button > .o_stat_info .o_stat_value,
+.o-form-buttonbox .btn.oe_stat_button > span .o_stat_value,
+.o-form-buttonbox .btn.oe_stat_button > .o_field_statinfo .o_stat_value {
+    color: $o-brand-primary !important;
+}
+
+.o_field_widget.o_field_many2many_tags .badge a, .o_field_html a{
+    color: inherit !important;
+}
