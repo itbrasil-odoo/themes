@@ -37,8 +37,23 @@
             <t t-set="body_classname" t-value="'bg-200'"/>
             <t t-set="disable_database_manager" t-value="True" />
             <div class="text-center small login--footer" t-if="not disable_footer">
-                <a href="https://www.itbrasil.com.br?utm_source=db&amp;utm_medium=auth" target="_blank">Powered by <span>IT Brasil</span></a>
+                <a href="https://www.itbrasil.com.br?utm_source=db&amp;utm_medium=auth" target="_blank">Powered by <span>IT Brasil</span>
+                </a>
             </div>
+        </xpath>
+    </template>
+    <template id="web_login_disable_superuser_link" inherit_id="web.login" name="Login">
+        <xpath expr="//form/div[last()]/t" position="attributes">
+            <attribute name="t-if">debug_allow</attribute>
+        </xpath>
+    </template>
+    <template id="itbrasil_brand_promotion" inherit_id="web.brand_promotion_message" name="Brand Promotion Message">
+        <xpath expr="//t[@t-set='odoo_logo']" position="replace">
+            <t t-set="odoo_logo">
+                <a target="_blank" t-attf-href="https://www.itbrasil.com.br?utm_source=db&amp;utm_medium=#{_utm_medium}" class="badge text-bg-light">
+                    <img alt="Odoo" src="/itbr_web_theme/static/description/logo.png" style="width: auto; height: 3em; vertical-align: baseline;"/>
+                </a>
+            </t>
         </xpath>
     </template>
 </odoo>
