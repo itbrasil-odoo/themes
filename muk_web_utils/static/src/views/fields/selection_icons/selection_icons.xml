@@ -6,8 +6,8 @@
             <t t-if="props.readonly or props.noLabel">
                 <div class="text-center">
                     <span 
-                        t-attf-class="fa fa-{{ valueIcon(value) }}" 
-                        t-att-title="string" 
+                        t-attf-class="fa fa-{{ valueIcon(value) }}"
+                        t-att-data-tooltip="string"
                         t-att-raw-value="value" 
                     />
                 </div>

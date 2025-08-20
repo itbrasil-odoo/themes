@@ -55,6 +55,7 @@
                     name="image_1920" 
                     widget="image" 
                     nolabel="1"
+                    width="30"
                     options="{'zoom': true, 'preview_image':'image_128', 'size': [25, 25]}"
                 />
 				<field 
@@ -72,8 +73,9 @@
                         'icons': {
                             'consu': 'archive', 
                             'service': 'user', 
-                            'combo': 'sitemap'
-                        }
+                            'combo': 'sitemap',
+                        },
+                        'defaultIcon': 'gears',
                     }
                 </attribute>
                 <attribute name="optional">show</attribute>

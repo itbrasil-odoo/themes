@@ -5,7 +5,7 @@
         This module improves and extends the contact app
         and the related partner model.
     ''',
-    'version': '18.0.1.0.3',
+    'version': '19.0.1.0.0',
     'category': 'Sales/CRM',
     'license': 'LGPL-3', 
     'author': 'MuK IT',
@@ -15,15 +15,16 @@
         'Mathias Markl <mathias.markl@mukit.at>',
     ],
     'depends': [
-        'mail',
-        'base_vat',
+        'base_setup',
         'contacts',
+        'mail',
         'muk_web_utils',
     ],
     'data': [
         'data/ir_sequence.xml',
         'templates/ir_qweb_widget.xml',
         'views/res_partner.xml',
+        'views/res_config_settings.xml',
         'views/base_partner_merge.xml',
     ],
     'images': [

@@ -8,10 +8,12 @@ export class SelectionIconsField extends SelectionField {
     static props = {
         ...SelectionField.props,
         icons: { type: Object },
+        defaultIcon: { type: String, optional: true },
         noLabel: { type: Boolean, optional: true },
     };
     valueIcon(value) {
-        return this.props.icons && this.props.icons[value] || '';
+        const icon = this.props.icons && this.props.icons[value];
+        return icon || this.props.defaultIcon || '';
     }
 }
 
@@ -26,10 +28,16 @@ export const selectionIconsField = {
             name: 'icons',
             type: 'string',
         },
+        {
+            label: 'Default Icon',
+            name: 'defaultIcon',
+            type: 'string',
+        },
     ],
     extractProps({ attrs, options }) {
         const props = selectionField.extractProps(...arguments);
         props.noLabel = exprToBoolean(attrs.nolabel);
+        props.defaultIcon = options.defaultIcon;
         props.icons = options.icons;
         return props;
     },

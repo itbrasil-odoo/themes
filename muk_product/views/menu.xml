@@ -69,75 +69,49 @@
 	        sequence="80"
 	        name="Configuration"
 	    >
-	        <menuitem
-	            id="menu_configuration_settings"
-	            sequence="5"
-	            name="Settings"
-	            action="base_setup.action_general_configuration"
-	            groups="base.group_system"
+			<menuitem
+				id="menu_product_category"
+				sequence="5"
+				name="Product Categories"
+				action="product.product_category_action_form"
+			/>
+			<menuitem
+				id="menu_product_tag"
+				sequence="8"
+				name="Product Tags"
+				action="product.product_tag_action"
 			/>
 		    <menuitem
 		        id="menu_configuration_product"
 		        sequence="10"
-		        name="Products"
+		        name="Variations"
 		    >
-			    <menuitem
-			        id="menu_product_category"
-			        sequence="5"
-			        name="Product Categories"
-			        action="product.product_category_action_form"
-			    />
-			    <menuitem
-			        id="menu_product_tag"
-			        sequence="10"
-			        name="Product Tags"
-			        action="product.product_tag_action"
-			    />
-                <menuitem 
-                	id="menu_product_attribute"
-                    sequence="15"
-			        name="Product Attributes"
-                    action="product.attribute_action"
-                    groups="product.group_product_variant"
-               />
-			   <menuitem
-                    id="menu_product_combo"
-                    name="Combo Choices"
-                    action="product.product_combo_action"
-                    sequence="20"
-                />
+				<menuitem 
+					id="menu_product_attribute"
+					sequence="15"
+					name="Product Attributes"
+					action="product.attribute_action"
+					groups="product.group_product_variant"
+				/>
+				<menuitem
+					id="menu_product_combo"
+					name="Combo Choices"
+					action="product.product_combo_action"
+					sequence="20"
+				/>
 	    	</menuitem>
 			<menuitem
 		        id="menu_configuration_uom"
 		        sequence="15"
-		        name="Units of Measure"
+		        name="Logistics"
         		groups="uom.group_uom"
 		    >
 			    <menuitem 
-			    	id="menu_uom_category"
-	                sequence="25"
-	                name="Categories"
-	                action="uom.product_uom_categ_form_action"
-	       		/>
-			    <menuitem 
 			    	id="menu_uom_unit"
 	                sequence="50"
-	                name="Units"
+	                name="Units &amp; Packagings"
 	                action="uom.product_uom_form_action"
 	       		/>
-	    	</menuitem>
-		    <menuitem
-		        id="menu_configuration_logistics"
-		        sequence="25"
-		        name="Logistics"
-        		groups="product.group_stock_packaging"
-		    >
-			    <menuitem 
-			    	id="menu_product_packaging" 
-			        sequence="10"
-			    	name="Product Packagings" 
-			    	action="product.action_packaging_view" 
-			    />
 	    	</menuitem>
 	    </menuitem>
     </menuitem>

@@ -2,7 +2,6 @@ from functools import reduce
 
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
-from odoo.tools import SQL
 
 
 class ProductProduct(models.Model):
@@ -21,6 +20,20 @@ class ProductProduct(models.Model):
     barcode = fields.Char(
         tracking=True,
         copy=False,
+    )
+
+    # ----------------------------------------------------------
+    # Index
+    # ----------------------------------------------------------
+    
+    _unique_default_code = models.UniqueIndex(
+        "(default_code) WHERE default_code IS NOT NULL",
+        "Another entry with the same default code already exists.",
+    )
+
+    _unique_barcode = models.UniqueIndex(
+        "(barcode) WHERE barcode IS NOT NULL",
+        "Another entry with the same barcode already exists.",
     )
 
     # ----------------------------------------------------------
@@ -44,32 +57,6 @@ class ProductProduct(models.Model):
             checksum = (10 - ((evensum + oddsum * 3) % 10)) % 10
             return f'{code}{checksum}'
         return code
-
-    # ----------------------------------------------------------
-    # Setup
-    # ----------------------------------------------------------
-
-    def init(self):
-        self.env.cr.execute(
-            SQL(
-                """
-                    CREATE UNIQUE INDEX IF NOT EXISTS product_product_unique_default_code 
-                    ON %s (default_code) 
-                    WHERE default_code IS NOT NULL
-                """,
-                SQL.identifier(self._table)
-            )
-        )
-        self.env.cr.execute(
-            SQL(
-                """
-                    CREATE UNIQUE INDEX IF NOT EXISTS product_product_unique_barcode 
-                    ON %s (barcode) 
-                    WHERE barcode IS NOT NULL
-                """,
-                SQL.identifier(self._table)
-            )
-        )
 
     #----------------------------------------------------------
     # ORM

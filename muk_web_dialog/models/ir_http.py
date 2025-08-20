@@ -1,5 +1,4 @@
 from odoo import models
-from odoo.http import request
 
 
 class IrHttp(models.AbstractModel):
@@ -11,6 +10,6 @@ class IrHttp(models.AbstractModel):
     #----------------------------------------------------------
     
     def session_info(self):
-        result = super(IrHttp, self).session_info()
+        result = super().session_info()
         result['dialog_size'] = self.env.user.dialog_size
         return result

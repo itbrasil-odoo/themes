@@ -7,15 +7,33 @@
         <field name="arch" type="xml">
             <form>
                 <sheet>
-                    <group>
-                        <field name="reference"/>
-                        <field name="notify" widget="boolean_toggle"/>
+                    <field name="configuration_id" invisible="1"/>
+                    <field name="model_id" invisible="1"/>
+                    <group invisible="configuration_id and route_type == 'new'">
+                        <field 
+                            name="reference" 
+                            invisible="not model_id"
+                            required="route_type == 'search'"
+                            options="{'model_field': 'model_id', 'no_create': True}"
+                        />
+                        <field 
+                            name="reference" 
+                            invisible="model_id"
+                            required="not configuration_id or route_type == 'search'"
+                        />
+                        <field
+                            name="notify" 
+                            widget="boolean_toggle"
+                        />
                         <field 
                             name="set_is_internal" 
                             widget="boolean_toggle"
                             invisible="not notify"
                         />
                 	</group>
+                    <p invisible="route_type != 'new'">
+                        Do you want to create a new record and attach the messages?
+                    </p>
                 </sheet>
                 <footer>
                     <button 
@@ -23,6 +41,14 @@
                         string="Attach Message"
                         type="object"
                         class="oe_highlight"
+                        invisible="configuration_id and route_type == 'new'"
+                    />
+                    <button 
+                    	name="action_route"
+                        string="Create Record"
+                        type="object"
+                        class="oe_highlight"
+                        invisible="route_type != 'new'"
                     />
                     <button string="Cancel" class="oe_link" special="cancel"/>
                 </footer>

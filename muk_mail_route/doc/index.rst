@@ -3,9 +3,9 @@ MuK Mail Routing
 ================
 
 This module collects mails that could not be routed and allows them to be 
-assigned subsequently. In addition, a channel is added in which error messages 
-are automatically posted if there are problems with the connection to the 
-mail server.
+assigned subsequently. To simplify the workflow, predefined router settings 
+can be created. This allows lost messages, for example, to be created 
+directly as new CRM leads.
 
 Installation
 ============
@@ -29,7 +29,7 @@ clicking on the upgrade button.
 Configuration
 =============
 
-No additional configuration is needed to use this module.
+Go to *Discuss -> Configuration -> Routers* to create a new predefined routing option.
 
 Usage
 =============

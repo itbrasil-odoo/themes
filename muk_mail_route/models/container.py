@@ -5,7 +5,6 @@ class Container(models.Model):
 
     _name = 'muk_mail_route.container'
     _inherit = [
-        'mail.activity.mixin', 
         'mail.thread'
     ]
     _description = 'Message Container'

@@ -1,5 +1,4 @@
 from odoo import api, models, _
-from odoo.addons.muk_mail_route import tools
 
 
 class MailThread(models.AbstractModel):
@@ -20,7 +19,7 @@ class MailThread(models.AbstractModel):
         container = model_ctx.search([], limit=1)
         if not container:
             container = model_ctx.create({})
-        elif container.message_follower_ids:
+        if container.message_follower_ids:
             container.message_follower_ids.unlink()
         return container
     
@@ -31,29 +30,22 @@ class MailThread(models.AbstractModel):
             message_dict['email_from']
         )
         message_dict.pop('parent_id', None) 
-        user_id = user.id if user else self.env.uid
         return self._routing_check_route(
             message, 
             message_dict,
-            (container._name, container.id, custom_values, user_id, None),
+            (
+                container._name, 
+                container.id, 
+                custom_values, 
+                user.id if user else self.env.uid, 
+                None
+            ),
             raise_exception=True
         )
         
     # ----------------------------------------------------------
     # Functions
     # ----------------------------------------------------------
-
-    @api.model
-    def message_process(self, *args, **kwargs):
-        try:
-            return super().message_process(*args, **kwargs)
-        except Exception as exc:
-            tools.logging.post_exception_to_channel(
-                self.env.cr.dbname,
-                exc,
-                _('Mail Process Failed!')
-            )
-            raise
 
     @api.model
     def message_route(
@@ -78,5 +70,5 @@ class MailThread(models.AbstractModel):
                 route = self._get_failed_message_route(
                     message, message_dict, custom_values
                 )
-                res.append(route)
+                return [route]
         return res

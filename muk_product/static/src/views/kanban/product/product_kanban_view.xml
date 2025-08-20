@@ -6,7 +6,7 @@
     	t-inherit="web.KanbanView.Buttons" 
     	t-inherit-mode="primary"
     >
-        <xpath expr="//div[hasclass('o_cp_buttons')]" position="inside">
+        <xpath expr="." position="inside">
 	        <button 
 	        	type="button" 
 	        	class="btn btn-secondary mk_button_product_search" 

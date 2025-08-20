@@ -1,7 +1,7 @@
 import ast
 
 from odoo import api, fields, models
-from odoo.osv import expression
+from odoo.fields import Domain
 
 
 class ProductSearch(models.TransientModel):
@@ -73,10 +73,7 @@ class ProductSearch(models.TransientModel):
         comodel_name='ir.actions.act_window',
         string="Action",
         required=True,
-        domain=[
-            ('res_model', '=', 'product.template'), 
-            ('type', '=', 'ir.actions.act_window')
-        ],
+        domain=[('res_model', '=', 'product.template')],
         default=lambda self: self.env.ref('product.product_template_action_all', False)
     )
 
@@ -93,18 +90,17 @@ class ProductSearch(models.TransientModel):
     def _compute_search_domain(self):
         for record in self:
             search_domain = []
-            search_value = record.search_value or ''
-            search_parts = search_value.split(record.value_split_operator)
-            if not search_value:
-                search_domain = []
-            elif record.search_operator == '=':
+            search_parts = (record.search_value or '').split(
+                record.value_split_operator
+            )
+            if search_parts and record.search_operator == '=':
                 search_domain = [(record.search_field, 'in', search_parts)]
-            else:
-                search_domain = expression.OR([
+            elif search_parts and record.search_operator == 'ilike':
+                search_domain = Domain.OR([
                     [(record.search_field, record.search_operator, part)]
                     for part in search_parts
                 ])
-            record.search_domain = str(search_domain)
+            record.search_domain = repr(search_domain)
 
     @api.depends('search_domain')
     def _compute_product_preview(self):
@@ -116,7 +112,7 @@ class ProductSearch(models.TransientModel):
             templates = self.env['product.template'].search(
                 ast.literal_eval(record.search_domain), limit=8
             )
-            record.product_preview_ids = templates[:-1]
+            record.product_preview_ids = templates[:7]
             record.product_preview_hint = len(templates) > 7
 
     # ----------------------------------------------------------
@@ -126,8 +122,7 @@ class ProductSearch(models.TransientModel):
     def action_search_products(self):
         self.ensure_one()
         action = self.action_id._get_action_dict()
-        if self.search_domain:
-            action['domain'] = ast.literal_eval(
-                self.search_domain
-            )
+        action['domain'] = ast.literal_eval(
+            self.search_domain or '[]'
+        )
         return action

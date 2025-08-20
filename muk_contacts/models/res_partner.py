@@ -1,5 +1,5 @@
 from odoo import models, fields, api, _
-from odoo.tools import SQL
+from odoo.exceptions import UserError
 
 
 class Partner(models.Model):
@@ -24,27 +24,24 @@ class Partner(models.Model):
         copy=False,
     )
 
-    partner_properties = fields.Properties(
-        string='Properties', 
-        definition='country_id.partner_properties_definition', 
-        copy=True
+    default_invoice_partner_id = fields.Many2one(
+        comodel_name='res.partner',
+        string="Default Invoice Address",
+    )
+
+    default_delivery_partner_id = fields.Many2one(
+        comodel_name='res.partner',
+        string="Default Delivery Address",
     )
 
     # ----------------------------------------------------------
-    # Setup
+    # Index
     # ----------------------------------------------------------
     
-    def init(self):
-        self.env.cr.execute(
-            SQL(
-                """
-                    CREATE UNIQUE INDEX IF NOT EXISTS res_partner_unique_contact_number 
-                    ON %s (contact_number) 
-                    WHERE contact_number IS NOT NULL AND parent_id IS NULL
-                """,
-                SQL.identifier(self._table)
-            )
-        )
+    _unique_contact_number = models.UniqueIndex(
+        "(contact_number) WHERE contact_number IS NOT NULL AND parent_id IS NULL",
+        "Another entry with the same contact number already exists.",
+    )
         
     #----------------------------------------------------------
     # Helper
@@ -57,10 +54,28 @@ class Partner(models.Model):
         ]
 
     @api.model
-    def _get_next_contact_number(self):
-        return self.env['ir.sequence'].next_by_code(
+    def _get_next_contact_number(self, raise_exception=False):
+        contact_number = self.env['ir.sequence'].next_by_code(
             'contact.number'
         )
+        if not contact_number and raise_exception:
+            raise UserError(_(
+                "The contact number sequence couldn't be found."
+            ))
+        return contact_number
+
+    # ----------------------------------------------------------
+    # Functions
+    # ----------------------------------------------------------
+
+    def address_get(self, adr_pref=None):
+        res = super().address_get(adr_pref=adr_pref)
+        adr_pref = set(adr_pref or [])
+        if self.default_invoice_partner_id and 'invoice' in adr_pref:
+            res['invoice'] = self.default_invoice_partner_id.id
+        if self.default_delivery_partner_id and 'delivery' in adr_pref:
+            res['delivery'] = self.default_delivery_partner_id.id
+        return res
 
     #----------------------------------------------------------
     # Actions
@@ -81,7 +96,9 @@ class Partner(models.Model):
     def action_generate_contact_number(self):
         self.ensure_one()
         self.write({
-            'contact_number': self._get_next_contact_number()
+            'contact_number': self._get_next_contact_number(
+                raise_exception=True
+            )
         })
     
     #----------------------------------------------------------
@@ -94,7 +111,11 @@ class Partner(models.Model):
         super()._compute_display_name()
         if self.env.context.get('show_contact_number'):
             for record in self.filtered('contact_number'):
-                record.display_name = f"[{record.contact_number}] {record.display_name}"
+                record.display_name = (
+                    f"--[{record.contact_number}]-- {record.display_name}"
+                    if self.env.context.get('formatted_display_name')
+                    else f"[{record.contact_number}] {record.display_name}"
+                )
 
     #----------------------------------------------------------
     # ORM

@@ -5,7 +5,7 @@
         Technical module to provide some utility features and libraries that 
         can be used in other applications.
     ''',
-    'version': '18.0.1.0.3',
+    'version': '19.0.1.0.0',
     'category': 'Tools/Utils',
     'license': 'LGPL-3', 
     'author': 'MuK IT',
@@ -16,10 +16,37 @@
     ],
     'depends': [
         'web',
+        'base_setup',
+    ],
+    'data': [
+        'views/res_config_settings.xml',
     ],
     'assets': {
         'web.assets_backend': [
-            'muk_web_utils/static/src/**/*.*',
+            'muk_web_utils/static/src/core/block_progress/*',
+            (
+                'after',
+                'web/static/src/views/list/list_arch_parser.js',
+                'muk_web_utils/static/src/views/list/list_arch_parser.js',
+            ),
+            (
+                'after',
+                'web/static/src/views/list/list_renderer.xml',
+                'muk_web_utils/static/src/views/list/list_renderer.xml',
+            ),
+            (
+                'after', 
+                'web/static/src/views/fields/many2one/many2one_field.js',
+                'muk_web_utils/static/src/views/fields/many2one/many2one.js',
+            ),
+            (
+                'after', 
+                'web/static/src/views/fields/x2many/x2many_field.js',
+                'muk_web_utils/static/src/views/fields/x2many/x2many.js',
+            ),
+            'muk_web_utils/static/src/views/fields/json/*',
+            'muk_web_utils/static/src/views/fields/text_icons/*',
+            'muk_web_utils/static/src/views/fields/selection_icons/*',
         ],
     },
     'images': [
