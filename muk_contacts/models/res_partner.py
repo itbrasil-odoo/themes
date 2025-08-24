@@ -22,6 +22,7 @@ class Partner(models.Model):
         string="Contact Number",
         tracking=True,
         copy=False,
+        index=True,
     )
 
     default_invoice_partner_id = fields.Many2one(
