@@ -14,8 +14,8 @@
         'Mathias Markl <mathias.markl@mukit.at>',
     ],
     'depends': [
+        'web',
         'base_setup',
-        'web_editor',
     ],
     'data': [
         'templates/webclient.xml',
