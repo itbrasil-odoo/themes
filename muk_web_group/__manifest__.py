@@ -21,6 +21,9 @@
         'web.assets_backend': [
             '/muk_web_group/static/src/**/*',
         ],
+        'web.assets_unit_tests': [
+            'muk_web_group/static/tests/**/*',
+        ],
     },
     'images': [
         'static/description/banner.png',

@@ -31,6 +31,9 @@
                 '/muk_web_refresh/static/src/search/control_panel.xml',
             ),
         ],
+        'web.assets_unit_tests': [
+            'muk_web_refresh/static/tests/**/*',
+        ],
     },
     'images': [
         'static/description/banner.png',

@@ -31,6 +31,9 @@
                 '/muk_web_list_mode/static/src/views/list/list_controller.js',
             ),
         ],
+        'web.assets_unit_tests': [
+            'muk_web_list_mode/static/tests/**/*',
+        ],
     },
     'images': [
         'static/description/banner.png',
