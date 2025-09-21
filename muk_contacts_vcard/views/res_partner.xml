@@ -1,9 +1,24 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
 
+    <record id="view_partner_list" model="ir.ui.view">
+	    <field name="name">res.partner.list</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="muk_contacts.view_partner_list"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="attributes">
+            	<attribute name="optional">hide</attribute>
+            </xpath>
+			<xpath expr="//field[@name='name']" position="after">
+				<field name="firstname" optional="show" invisible="is_company"/>
+				<field name="lastname" optional="show" invisible="is_company"/>
+			</xpath>
+        </field>
+    </record>
+
     <record id="view_partner_form" model="ir.ui.view">
         <field name="model">res.partner</field>
-        <field name="inherit_id" ref="base.view_partner_form" />
+        <field name="inherit_id" ref="muk_contacts.view_partner_form" />
         <field name="arch" type="xml">
             <xpath expr="//field[@name='name' and @invisible='is_company']" position="attributes">
 				<attribute name="readonly">1</attribute>
