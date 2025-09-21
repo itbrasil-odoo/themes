@@ -92,14 +92,16 @@
 					optional="show" 
 				/>
 				<field name="contact_number" optional="show" />
-				<field name="commercial_company_name" optional="show" />
+				<field name="commercial_company_name" string="Company" optional="show" />
 			</xpath>
             <xpath expr="//field[@name='complete_name']" position="attributes">
             	<attribute name="string">Complete Name</attribute>
             	<attribute name="optional">hide</attribute>
             </xpath>
 			<xpath expr="//field[@name='complete_name']" position="after">
-				<field name="name" optional="show" invisible="is_company"/>
+				<field name="name" optional="hide" invisible="is_company"/>
+				<field name="firstname" optional="show" invisible="is_company"/>
+				<field name="lastname" optional="show" invisible="is_company"/>
 			</xpath>
         </field>
     </record>
