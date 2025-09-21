@@ -55,6 +55,7 @@ class Configuration(models.Model):
 
     model = fields.Char(
         related='model_id.model',
+        string="Model Name",
     )
 
     route_type = fields.Selection(
