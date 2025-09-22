@@ -21,3 +21,7 @@ To upgrade this module, you need to:
 Download the module and add it to your Odoo addons folder. Restart the
 server and log on to your Odoo server. Select the Apps menu and upgrade
 the module by clicking on the upgrade button.
+
+### Fork Synchronization
+
+If you're using a fork of this repository and need to sync new branches (like 19.0) from the official repository, please refer to our [Branch Synchronization Guide](BRANCH_SYNC.md) for detailed instructions.
