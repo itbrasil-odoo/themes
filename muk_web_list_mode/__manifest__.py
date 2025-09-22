@@ -11,7 +11,7 @@
     'license': 'LGPL-3', 
     'author': 'MuK IT',
     'website': 'http://www.mukit.at',
-    'live_test_url': 'https://my.mukit.at/r/f6m',
+    'live_test_url': 'https://youtu.be/efOsEbxZv9Q',
     'contributors': [
         'Mathias Markl <mathias.markl@mukit.at>',
     ],
