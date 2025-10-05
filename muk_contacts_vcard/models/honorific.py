@@ -20,6 +20,7 @@ class Honorific(models.Model):
 
     shortcut = fields.Char(
         string='Abbreviation', 
+        required=True, 
         translate=True
     )
 

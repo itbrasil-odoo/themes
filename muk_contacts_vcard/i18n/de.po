@@ -4,13 +4,168 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: Odoo Server 18.0+e\n"
+"Project-Id-Version: Odoo Server 19.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-11-06 13:21+0000\n"
-"PO-Revision-Date: 2024-11-06 13:21+0000\n"
+"POT-Creation-Date: 2025-10-04 22:00+0000\n"
+"PO-Revision-Date: 2025-10-04 22:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: \n"
 "Plural-Forms: \n"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid ""
+"<i class=\"fa fa-fw me-1 fa-user text-primary d-none d-sm-inline-block\" "
+"title=\"Contact Name\"/>"
+msgstr ""
+"<i class=\"fa fa-fw me-1 fa-user text-primary d-none d-sm-inline-block\" "
+"title=\"Contact Name\"/>"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Additional Information"
+msgstr "Zusätzliche Informationen"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Address"
+msgstr "Adresse"
+
+#. module: muk_contacts_vcard
+#: model:ir.model,name:muk_contacts_vcard.model_res_partner
+msgid "Contact"
+msgstr "Kontakt"
+
+#. module: muk_contacts_vcard
+#: model:ir.ui.menu,name:muk_contacts_vcard.menu_honorific_contact
+msgid "Contact Honorifics"
+msgstr "Kontaktanrede"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.actions.act_window,help:muk_contacts_vcard.action_honorific_contact
+msgid "Create a Honorific"
+msgstr "Erstellen Sie einen Ehrentitel"
+
+#. module: muk_contacts_vcard
+#: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__display_name
+msgid "Display Name"
+msgstr "Anzeigename"
+
+#. module: muk_contacts_vcard
+#: model:ir.model.fields.selection,name:muk_contacts_vcard.selection__res_partner__gender__f
+msgid "Female"
+msgstr "Weiblich"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Firstname"
+msgstr "Vorname"
+
+#. module: muk_contacts_vcard
+#: model:ir.model.fields.selection,name:muk_contacts_vcard.selection__muk_contacts_vcard_honorific__position__following
+msgid "Following"
+msgstr "Folgend"
+
+#. module: muk_contacts_vcard
+#: model:ir.model,name:muk_contacts_vcard.model_muk_contacts_vcard_honorific
+msgid "Honorific"
+msgstr "Ehrentitel"
+
+#. module: muk_contacts_vcard
+#: model:ir.actions.act_window,name:muk_contacts_vcard.action_honorific_contact
+msgid "Honorifics"
+msgstr "Ehrentitel"
+
+#. module: muk_contacts_vcard
+#: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__id
+msgid "ID"
+msgstr "ID"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Job Information"
+msgstr "Stelleninformationen"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Lastname"
+msgstr "Nachname"
+
+#. module: muk_contacts_vcard
+#: model:ir.model.fields.selection,name:muk_contacts_vcard.selection__res_partner__gender__m
+msgid "Male"
+msgstr "Männlich"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Middlename"
+msgstr "Zweiter Vorname"
+
+#. module: muk_contacts_vcard
+#: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__name
+#: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_users__name
+msgid "Name"
+msgstr "Name"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Notes"
+msgstr "Notizen"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Personal Information"
+msgstr "Persönliche Informationen"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Prefix"
+msgstr "Präfix"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Suffix"
+msgstr "Suffix"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "e.g. +1 111 222 3333"
+msgstr "z.B. +1 111 222 3333"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "e.g. B.Sc."
+msgstr "z.B. B.Sc."
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "e.g. Compliance Oversight"
+msgstr "z.B. Compliance-Überwachung"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "e.g. Dr."
+msgstr "z.B. Dr."
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "e.g. IT"
+msgstr "z.B. IT"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "e.g. Mike"
+msgstr "z.B. Mike"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "e.g. Sales Director"
+msgstr "z.B. Vertriebsleiter"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "e.g. home@example.com"
+msgstr "z.B. home@example.com"

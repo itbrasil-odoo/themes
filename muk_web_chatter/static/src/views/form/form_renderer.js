@@ -19,6 +19,7 @@ patch(FormRenderer.prototype, {
         const initialX = ev.pageX;
         const chatterElement = this.chatterContainer.el;
         const initialWidth = chatterElement.offsetWidth;
+        console.log("hi", ev, initialX, initialWidth)
         const resizeStoppingEvents = [
             'keydown', 'mousedown', 'mouseup'
         ];
