@@ -52,7 +52,7 @@
 				<attribute name="invisible">parent_id</attribute>
             </xpath>
             <xpath expr="//field[@name='function']" position="before">
-				<field name="department" placeholder="e.g. IT" invisible="is_company"/>
+				<field name="department" placeholder="e.g. IT"/>
             </xpath>
             <xpath expr="//field[@name='function']" position="after">
 				<field 

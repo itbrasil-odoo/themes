@@ -1,11 +1,11 @@
 import uuid
 
 from odoo import models, fields, api, _
-from odoo.tools import format_date
+from odoo.tools import format_date, html2plaintext
 from odoo.exceptions import UserError
 
 try:
-    import vobject.vcard
+    import vobject
 except ImportError:
     vobject = None
 
@@ -13,6 +13,14 @@ except ImportError:
 class Partner(models.Model):
 
     _inherit = 'res.partner'
+    _rec_names_search = [
+        'complete_name',
+        'email',
+        'ref',
+        'vat',
+        'company_registry',
+        'contact_number'
+    ]
     
     # ----------------------------------------------------------
     # Fields
@@ -161,8 +169,8 @@ class Partner(models.Model):
             family=self.lastname or '',
             given=self.firstname or '',
             additional=self.middlename or '',
-            prefix=' '.join(self.mapped('honorific_prefix_ids.name')),
-            suffix=' '.join(self.mapped('honorific_suffix_ids.name')),
+            prefix=' '.join(self.mapped('honorific_prefix_ids.shortcut')),
+            suffix=' '.join(self.mapped('honorific_suffix_ids.shortcut')),
         )
         if self.street2:
             adr = get_vcard_content_element('adr')
