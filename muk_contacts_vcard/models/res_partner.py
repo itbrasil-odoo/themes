@@ -98,9 +98,28 @@ class Partner(models.Model):
         string="Birthdate"
     )
 
+    birthdate_day = fields.Integer(
+        compute='_compute_birthdate_vals',
+        string='Birthdate Day',
+        readonly=True,
+        store=True,
+    )
+
+    birthdate_month = fields.Integer(
+        compute='_compute_birthdate_vals',
+        string='Birthdate Month',
+        readonly=True,
+        store=True,
+    )
+
     birthdate_placeholder = fields.Char(
         compute='_compute_birthdate_placeholder',
-        string="Birthday Placeholder"
+        string="Birthdate Placeholder"
+    )
+
+    birthday = fields.Char(
+        compute='_compute_birthday',
+        string="Birthday"
     )
 
     nickname = fields.Char(
@@ -273,7 +292,23 @@ class Partner(models.Model):
             )
             record.formatted_name = record_ctx._get_complete_name()
 
+    @api.depends('birthdate')
+    def _compute_birthdate_vals(self):
+        self.birthdate_day = False
+        self.birthdate_month = False
+        for record in self.filtered('birthdate'):
+            record.birthdate_day = record.birthdate.day
+            record.birthdate_month = record.birthdate.month
+
     def _compute_birthdate_placeholder(self):
         self.birthdate_placeholder = format_date(
             self.env, fields.Date.today()
         )
+
+    @api.depends('birthdate')
+    def _compute_birthday(self):
+        self.birthday = False
+        for record in self.filtered('birthdate'):
+            record.birthday = format_date(
+                self.env, record.birthdate, date_format='MMM d'
+            )

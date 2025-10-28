@@ -25,6 +25,24 @@ class Partner(models.Model):
         index=True,
     )
 
+    linked_user_id = fields.Many2one(
+        compute='_compute_linked_user_id', 
+        search='_search_linked_user_id', 
+        comodel_name='res.users', 
+        string="Linked User",
+        readonly=True,
+        store=False
+    )
+
+    linked_user_state = fields.Selection(
+        compute='compute_linked_user_state',
+        selection=[
+            ('portal', 'Portal'),
+            ('internal', 'Internal'),
+        ],
+        string="Linked User State"
+    )
+
     default_invoice_partner_id = fields.Many2one(
         comodel_name='res.partner',
         string="Default Invoice Address",
@@ -117,6 +135,26 @@ class Partner(models.Model):
                     if self.env.context.get('formatted_display_name')
                     else f"[{record.contact_number}] {record.display_name}"
                 )
+
+    def _search_linked_user_id(self, operator, value):
+        return [('user_ids', operator, value)]
+
+    @api.depends('user_ids')
+    def _compute_linked_user_id(self):
+        for record in self.with_context(active_test=False):
+            record.linked_user_id = (
+                record.user_ids[0] if record.user_ids else False
+            )
+
+    @api.depends('linked_user_id', 'linked_user_id.share')
+    def compute_linked_user_state(self):
+        self.linked_user_state = None
+        for record in self.filtered('linked_user_id'):
+            record.linked_user_state = (
+                'internal'
+                if record.linked_user_id._is_internal()
+                else 'portal'
+            )
 
     #----------------------------------------------------------
     # ORM

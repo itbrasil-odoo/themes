@@ -31,11 +31,22 @@
 					domain="['|', ('parent_id', '=', False), ('is_company', '=', True)]"
 				/>
 			</xpath>
-			<xpath expr="//filter[@name='inactive']" position="before">
+			<xpath expr="//filter[@name='inactive']" position="after">
                 <filter 
-					string="All" 
+					string="All Contacts" 
 					name="all" 
 					domain="['|', ('active', '=', False), ('active', '=', True)]"
+				/>
+				<separator/>
+                <filter 
+					string="Portal Users" 
+					name="all" 
+					domain="[('partner_share', '=', True), ('user_ids', '!=', False)]"
+				/>
+                <filter 
+					string="Internal Users" 
+					name="all" 
+					domain="[('partner_share', '=', False), ('user_ids', '!=', False)]"
 				/>
 			</xpath>
 			<xpath expr="//group" position="after">
@@ -84,6 +95,13 @@
 					widget="selection_icons" 
 					options="{'icons': {'contact': 'address-book', 'invoice': 'usd', 'delivery': 'truck', 'other': 'address-book-o'}}"
 					optional="show" 
+				/>
+				<field 
+					name="linked_user_state" 
+					nolabel="1"
+					widget="selection_icons" 
+					options="{'icons': {'portal': 'shopping-basket', 'internal': 'briefcase'}}"
+					optional="hide" 
 				/>
 				<field 
 					name="comment" 
