@@ -25,7 +25,7 @@ class ProductTemplate(models.Model):
     manufacturer_code = fields.Char(
         compute='_compute_manufacturer_code',
         inverse='_inverse_manufacturer_code',
-        string="Manufacturer Product URL"
+        string="Manufacturer Product Code"
     )
 
     # ----------------------------------------------------------
