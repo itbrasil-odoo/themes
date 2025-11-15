@@ -2,6 +2,29 @@
 <odoo>
 	
     <record id="view_product_template_search" model="ir.ui.view">
+        <field name="name">product.template.search.view</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_search_view" />
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="attributes">
+                <attribute name="filter_domain">
+                    [
+                        '|', '|', '|', '|',
+                        ('default_code', 'ilike', self),
+                        ('product_variant_ids.default_code', 'ilike', self),
+                        ('name', 'ilike', self),
+                        ('barcode', 'ilike', self),
+                        ('product_variant_ids.manufacturer_code', 'ilike', self)
+                    ]
+                </attribute>
+            </xpath>
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="manufacturer_id"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_product_template_panel_search" model="ir.ui.view">
         <field name="name">product.template.search</field>
         <field name="model">product.template</field>
         <field name="inherit_id" ref="product.product_template_search_view"/>
@@ -80,6 +103,36 @@
                 </attribute>
                 <attribute name="optional">show</attribute>
             </xpath>
+            <xpath expr="//field[@name='list_price']" position="before">
+                <field name="manufacturer_id" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_product_template_form" model="ir.ui.view">
+        <field name="name">product.template.form</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view" />
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='general_information']//group[@name='internal_notes']" position="before">
+                <group name="manufacturer" string="Manufacturer" invisible="type in ['service', 'combo']">
+                    <group>
+                        <field
+                            name="manufacturer_id"
+                            context="{'res_partner_search_mode': 'supplier'}"
+                        />
+                        <field name="manufacturer_name" string="Product Name"/>
+                    </group>
+                    <group>
+                        <field name="manufacturer_code" string="Product Code"/>
+                        <field 
+                            name="manufacturer_url" 
+                            widget="url" 
+                            string="Product URL"
+                        />
+                    </group>
+                </group>
+            </xpath>
         </field>
     </record>
 
@@ -87,7 +140,7 @@
         <field name="name">Products</field>
         <field name="res_model">product.template</field>
         <field name="view_mode">list,kanban,form,activity</field>
-        <field name="search_view_id" ref="view_product_template_search"/>
+        <field name="search_view_id" ref="view_product_template_panel_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 Create a new product
