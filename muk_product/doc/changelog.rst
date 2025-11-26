@@ -1,3 +1,13 @@
+`1.3.0`
+-------
+
+- Variant Price
+
+`1.2.0`
+-------
+
+- Manufacturer Fields
+
 `1.1.0`
 -------
 

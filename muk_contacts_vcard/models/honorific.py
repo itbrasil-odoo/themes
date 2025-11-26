@@ -19,9 +19,13 @@ class Honorific(models.Model):
     )
 
     shortcut = fields.Char(
+        compute='_compute_shortcut',
         string='Abbreviation', 
         required=True, 
-        translate=True
+        translate=True,
+        precompute=True,
+        readonly=False,
+        store=True,
     )
 
     active = fields.Boolean(
@@ -42,3 +46,10 @@ class Honorific(models.Model):
         required=True, 
         default='preceding',
     )
+
+    @api.depends('name')
+    def _compute_shortcut(self):
+        for record in self.filtered(
+            lambda r: not r.shortcut
+        ):
+            record.shortcut = record.name

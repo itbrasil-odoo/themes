@@ -6,8 +6,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-10-04 22:00+0000\n"
-"PO-Revision-Date: 2025-10-04 22:00+0000\n"
+"POT-Creation-Date: 2025-11-26 11:35+0000\n"
+"PO-Revision-Date: 2025-11-26 11:35+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "MIME-Version: 1.0\n"
@@ -27,13 +27,18 @@ msgstr "Aktivieren, um Kontaktnummern automatisch zu generieren"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
-msgid "All"
-msgstr "Alle"
+msgid "All Contacts"
+msgstr "Alle Kontakte"
 
 #. module: muk_contacts
 #: model:ir.model.constraint,message:muk_contacts.constraint_res_partner_unique_contact_number
 msgid "Another entry with the same contact number already exists."
 msgstr "Ein weiterer Eintrag mit derselben Kontaktnummer existiert bereits."
+
+#. module: muk_contacts
+#: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_list
+msgid "Company"
+msgstr "Unternehmen"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_list
@@ -74,13 +79,23 @@ msgstr "Anzeigename"
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_form
 msgid "Generate Contact Number"
-msgstr "Kontaktnummer generieren"
+msgstr "Kontakt Nummer generieren"
 
 #. module: muk_contacts
 #: model:ir.model.fields,field_description:muk_contacts.field_res_config_settings__id
 #: model:ir.model.fields,field_description:muk_contacts.field_res_partner__id
 msgid "ID"
 msgstr "ID"
+
+#. module: muk_contacts
+#: model:ir.model.fields.selection,name:muk_contacts.selection__res_partner__linked_user_state__internal
+msgid "Internal"
+msgstr "Intern"
+
+#. module: muk_contacts
+#: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
+msgid "Internal Users"
+msgstr "Interne Benutzer"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_form
@@ -96,6 +111,11 @@ msgstr "Hauptkontakte"
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_form
 msgid "Open View"
 msgstr "Ansicht öffnen"
+
+#. module: muk_contacts
+#: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
+msgid "Portal Users"
+msgstr "Portal-Benutzer"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
