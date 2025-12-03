@@ -140,6 +140,14 @@ class Partner(models.Model):
         copy=False,
     )
 
+    vcard_modified = fields.Datetime(
+        compute='_compute_vcard_modified',
+        string="vCard Modified",
+        readonly=True,
+        store=True,
+        copy=False,
+    )
+
     #----------------------------------------------------------
     # Helper
     #----------------------------------------------------------
@@ -203,9 +211,6 @@ class Partner(models.Model):
         if self.gender:
             gender = vcard.add('gender')
             gender.value = self.gender.upper()
-        if self.gender:
-            gender = vcard.add('gender')
-            gender.value = self.gender.upper()
         if self.birthdate:
             bday = vcard.add('bday')
             bday.value = self.birthdate.strftime('%Y%m%d')
@@ -244,7 +249,7 @@ class Partner(models.Model):
         uid = vcard.add('uid')
         uid.value = self._ensure_vcard_uid()
         rev = vcard.add('rev')
-        rev.value = self.write_date.strftime('%Y%m%dT%H%M%SZ')
+        rev.value = self.vcard_modified.strftime('%Y%m%dT%H%M%SZ')
         return vcard
 
     #----------------------------------------------------------
@@ -312,3 +317,36 @@ class Partner(models.Model):
             record.birthday = format_date(
                 self.env, record.birthdate, date_format='MMM d'
             )
+
+    @api.depends(
+        'birthdate',
+        'category_id.name',
+        'city',
+        'commercial_company_name',
+        'comment',
+        'country_id.name',
+        'email',
+        'email2',
+        'firstname',
+        'function',
+        'gender',
+        'honorific_prefix_ids',
+        'honorific_suffix_ids',
+        'image_1920',
+        'lang',
+        'lastname',
+        'middlename',
+        'name',
+        'nickname',
+        'parent_id',
+        'phone',
+        'phone2',
+        'role',
+        'state_id.name',
+        'street',
+        'tz',
+        'website',
+        'zip',
+    )
+    def _compute_vcard_modified(self):
+        self.vcard_modified = fields.Datetime.now()

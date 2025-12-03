@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: Odoo Server 19.0\n"
+"Project-Id-Version: Odoo Server 19.0+e\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-10-04 22:00+0000\n"
-"PO-Revision-Date: 2025-10-04 22:00+0000\n"
+"POT-Creation-Date: 2025-11-26 16:29+0000\n"
+"PO-Revision-Date: 2025-11-26 16:29+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "MIME-Version: 1.0\n"
@@ -23,17 +23,27 @@ msgstr "<span>Ref:</span>"
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_res_config_settings_form
 msgid "Activate to automatically generate contact numbers"
-msgstr "Aktivieren, um Kontaktnummern automatisch zu generieren"
+msgstr "Aktivieren, um automatisch Kontaktnummern zu generieren"
+
+#. module: muk_contacts
+#: model:ir.model.fields,field_description:muk_contacts.field_res_config_settings__active_contact_number_automation
+msgid "Active Contact Number Automation"
+msgstr "Aktive Kontaktnummer-Automatisierung"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
-msgid "All"
-msgstr "Alle"
+msgid "All Contacts"
+msgstr "Alle Kontakte"
 
 #. module: muk_contacts
 #: model:ir.model.constraint,message:muk_contacts.constraint_res_partner_unique_contact_number
 msgid "Another entry with the same contact number already exists."
 msgstr "Ein weiterer Eintrag mit derselben Kontaktnummer existiert bereits."
+
+#. module: muk_contacts
+#: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_list
+msgid "Company"
+msgstr "Unternehmen"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_list
@@ -51,14 +61,32 @@ msgid "Contact"
 msgstr "Kontakt"
 
 #. module: muk_contacts
+#: model:ir.model.fields,field_description:muk_contacts.field_res_partner__contact_number
+#: model:ir.model.fields,field_description:muk_contacts.field_res_users__contact_number
+msgid "Contact Number"
+msgstr "Kontakt Nummer"
+
+#. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_res_config_settings_form
 msgid "Contact Number Automation"
-msgstr "Kontaktnummer-Automatisierung"
+msgstr "Kontakt Nummer Automatisierung"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_form
 msgid "Default Address"
 msgstr "Standardadresse"
+
+#. module: muk_contacts
+#: model:ir.model.fields,field_description:muk_contacts.field_res_partner__default_delivery_partner_id
+#: model:ir.model.fields,field_description:muk_contacts.field_res_users__default_delivery_partner_id
+msgid "Default Delivery Address"
+msgstr "Standard-Lieferadresse"
+
+#. module: muk_contacts
+#: model:ir.model.fields,field_description:muk_contacts.field_res_partner__default_invoice_partner_id
+#: model:ir.model.fields,field_description:muk_contacts.field_res_users__default_invoice_partner_id
+msgid "Default Invoice Address"
+msgstr "Standard-Rechnungsadresse"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_form
@@ -83,9 +111,31 @@ msgid "ID"
 msgstr "ID"
 
 #. module: muk_contacts
+#: model:ir.model.fields.selection,name:muk_contacts.selection__res_partner__linked_user_state__internal
+msgid "Internal"
+msgstr "Intern"
+
+#. module: muk_contacts
+#: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
+msgid "Internal Users"
+msgstr "Interne Benutzer"
+
+#. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_form
 msgid "Invoice"
 msgstr "Rechnung"
+
+#. module: muk_contacts
+#: model:ir.model.fields,field_description:muk_contacts.field_res_partner__linked_user_id
+#: model:ir.model.fields,field_description:muk_contacts.field_res_users__linked_user_id
+msgid "Linked User"
+msgstr "Verknüpfter Benutzer"
+
+#. module: muk_contacts
+#: model:ir.model.fields,field_description:muk_contacts.field_res_partner__linked_user_state
+#: model:ir.model.fields,field_description:muk_contacts.field_res_users__linked_user_state
+msgid "Linked User State"
+msgstr "Verknüpfter Benutzerstatus"
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
@@ -98,9 +148,26 @@ msgid "Open View"
 msgstr "Ansicht öffnen"
 
 #. module: muk_contacts
+#: model:ir.model.fields.selection,name:muk_contacts.selection__res_partner__linked_user_state__portal
+msgid "Portal"
+msgstr "Portal"
+
+#. module: muk_contacts
+#: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
+msgid "Portal Users"
+msgstr "Portal-Benutzer"
+
+#. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_search
 msgid "Tags"
 msgstr "Tags"
+
+#. module: muk_contacts
+#. odoo-python
+#: code:addons/muk_contacts/models/res_config_settings.py:0
+#: code:addons/muk_contacts/models/res_partner.py:0
+msgid "The contact number sequence couldn't be found."
+msgstr "Die Kontaktnummernfolge konnte nicht gefunden werden."
 
 #. module: muk_contacts
 #: model_terms:ir.ui.view,arch_db:muk_contacts.view_partner_form

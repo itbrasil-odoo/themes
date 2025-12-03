@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: Odoo Server 19.0\n"
+"Project-Id-Version: Odoo Server 19.0+e\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-10-04 22:04+0000\n"
-"PO-Revision-Date: 2025-10-04 22:04+0000\n"
+"POT-Creation-Date: 2025-11-26 16:40+0000\n"
+"PO-Revision-Date: 2025-11-26 16:40+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "MIME-Version: 1.0\n"
@@ -27,6 +27,11 @@ msgstr ""
 "                            Klicken Sie auf 'Suchen', um alle Ergebnisse zu sehen."
 
 #. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__action_id
+msgid "Action"
+msgstr "Aktion"
+
+#. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_res_config_settings_form
 msgid "Activate to automatically generate product barcodes"
 msgstr "Aktivieren, um Produktbarcode automatisch zu generieren"
@@ -35,6 +40,16 @@ msgstr "Aktivieren, um Produktbarcode automatisch zu generieren"
 #: model_terms:ir.ui.view,arch_db:muk_product.view_res_config_settings_form
 msgid "Activate to automatically generate product references"
 msgstr "Aktivieren, um Produktreferenzen automatisch zu generieren"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_res_config_settings__active_product_barcode_automation
+msgid "Active Product Barcode Automation"
+msgstr "Aktive Produktbarcode-Automatisierung"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_res_config_settings__active_product_default_code_automation
+msgid "Active Product Internal Reference Automation"
+msgstr "Aktive Produktinterne Referenzautomatisierung"
 
 #. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_document_search
@@ -62,7 +77,7 @@ msgid "Archived"
 msgstr "Archiviert"
 
 #. module: muk_product
-#: model_terms:ir.ui.view,arch_db:muk_product.view_product_search
+#: model_terms:ir.ui.view,arch_db:muk_product.view_product_panel_search
 msgid "Attributes"
 msgstr "Attribute"
 
@@ -75,7 +90,7 @@ msgstr "Barcode"
 #. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_search_form
 msgid "Cancel"
-msgstr "Abbrechen"
+msgstr "Stornieren"
 
 #. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_product_combo
@@ -98,9 +113,14 @@ msgid "Configuration"
 msgstr "Konfiguration"
 
 #. module: muk_product
+#: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__search_operator__ilike
+msgid "Contains"
+msgstr "Enthält"
+
+#. module: muk_product
 #: model_terms:ir.actions.act_window,help:muk_product.action_product_template
 msgid "Create a new product"
-msgstr "Ein neues Produkt erstellen"
+msgstr "Erstellen Sie ein neues Produkt"
 
 #. module: muk_product
 #: model_terms:ir.actions.act_window,help:muk_product.action_product
@@ -108,7 +128,19 @@ msgid "Create a new product variant"
 msgstr "Erstellen Sie eine neue Produktvariante"
 
 #. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__create_uid
+msgid "Created by"
+msgstr "Erstellt von"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__create_date
+msgid "Created on"
+msgstr "Erstellt am"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__display_name
 #: model:ir.model.fields,field_description:muk_product.field_product_product__display_name
+#: model:ir.model.fields,field_description:muk_product.field_product_template__display_name
 #: model:ir.model.fields,field_description:muk_product.field_res_config_settings__display_name
 msgid "Display Name"
 msgstr "Anzeigename"
@@ -120,6 +152,7 @@ msgid "Documents"
 msgstr "Dokumente"
 
 #. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__search_domain
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_search_form
 msgid "Domain"
 msgstr "Domäne"
@@ -130,12 +163,19 @@ msgid "Enter"
 msgstr "Eingeben"
 
 #. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__search_field
+msgid "Field"
+msgstr "Feld"
+
+#. module: muk_product
 #: model:ir.actions.act_window,name:muk_product.action_product_pricelist_item
 msgid "Fixed Price Rules"
 msgstr "Festpreisregeln"
 
 #. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__id
 #: model:ir.model.fields,field_description:muk_product.field_product_product__id
+#: model:ir.model.fields,field_description:muk_product.field_product_template__id
 #: model:ir.model.fields,field_description:muk_product.field_res_config_settings__id
 msgid "ID"
 msgstr "ID"
@@ -147,6 +187,7 @@ msgstr "Suchwerte einfügen..."
 
 #. module: muk_product
 #: model:ir.model.fields,field_description:muk_product.field_product_product__default_code
+#: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__search_field__product_variant_ids_default_code
 msgid "Internal Reference"
 msgstr "Interne Referenz"
 
@@ -156,9 +197,49 @@ msgid "International Article Number used for product identification."
 msgstr "Internationale Artikelnummer zur Produktidentifikation"
 
 #. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__write_uid
+msgid "Last Updated by"
+msgstr "Zuletzt aktualisiert von"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__write_date
+msgid "Last Updated on"
+msgstr "Zuletzt aktualisiert am"
+
+#. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_configuration_uom
 msgid "Logistics"
 msgstr "Logistik"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_product_product__manufacturer_id
+#: model:ir.model.fields,field_description:muk_product.field_product_template__manufacturer_id
+#: model_terms:ir.ui.view,arch_db:muk_product.view_product_template_form
+msgid "Manufacturer"
+msgstr "Hersteller"
+
+#. module: muk_product
+#: model_terms:ir.ui.view,arch_db:muk_product.view_product_variant_easy_edit
+msgid "Manufacturer Code"
+msgstr "Hersteller-Code"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_product_product__manufacturer_code
+#: model:ir.model.fields,field_description:muk_product.field_product_template__manufacturer_code
+msgid "Manufacturer Product Code"
+msgstr "Hersteller Produktcode"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_product_product__manufacturer_name
+#: model:ir.model.fields,field_description:muk_product.field_product_template__manufacturer_name
+msgid "Manufacturer Product Name"
+msgstr "Hersteller Produktname"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_product_product__manufacturer_url
+#: model:ir.model.fields,field_description:muk_product.field_product_template__manufacturer_url
+msgid "Manufacturer Product URL"
+msgstr "Hersteller Produkt-URL"
 
 #. module: muk_product
 #: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__search_operator__=
@@ -169,6 +250,16 @@ msgstr "Übereinstimmung"
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_search_form
 msgid "Preview"
 msgstr "Vorschau"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__product_preview_hint
+msgid "Preview Hint"
+msgstr "Vorschau-Hinweis"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__product_preview_ids
+msgid "Preview Records"
+msgstr "Vorschau-Datensätze"
 
 #. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_pricelist_item_list
@@ -182,6 +273,11 @@ msgid "Price Rules"
 msgstr "Preisregeln"
 
 #. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_product_product__price_string
+msgid "Price String"
+msgstr "Preiszeichenfolge"
+
+#. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_pricelist_item_list
 msgid "Pricelist"
 msgstr "Preisliste"
@@ -193,6 +289,11 @@ msgid "Pricelists"
 msgstr "Preisliste"
 
 #. module: muk_product
+#: model:ir.model,name:muk_product.model_product_template
+msgid "Product"
+msgstr "Produkt"
+
+#. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_product_attribute
 msgid "Product Attributes"
 msgstr "Produktattribute"
@@ -200,7 +301,7 @@ msgstr "Produktattribute"
 #. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_res_config_settings_form
 msgid "Product Barcode Automation"
-msgstr "Produkt Barcode Automatisierung"
+msgstr "Produkt Barcode-Automatisierung"
 
 #. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_product_category
@@ -208,7 +309,13 @@ msgid "Product Categories"
 msgstr "Produktkategorien"
 
 #. module: muk_product
+#: model_terms:ir.ui.view,arch_db:muk_product.view_product_template_form
+msgid "Product Code"
+msgstr "Produktcode"
+
+#. module: muk_product
 #: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__search_field__name
+#: model_terms:ir.ui.view,arch_db:muk_product.view_product_template_form
 msgid "Product Name"
 msgstr "Produktname"
 
@@ -220,12 +327,17 @@ msgstr "Produktreferenzautomatisierung"
 #. module: muk_product
 #: model:ir.model,name:muk_product.model_muk_product_product_search
 msgid "Product Search"
-msgstr "Produktsuche"
+msgstr "Produkt Suche"
 
 #. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_product_tag
 msgid "Product Tags"
 msgstr "Produkt-Tags"
+
+#. module: muk_product
+#: model_terms:ir.ui.view,arch_db:muk_product.view_product_template_form
+msgid "Product URL"
+msgstr "Produkt-URL"
 
 #. module: muk_product
 #: model:ir.model,name:muk_product.model_product_product
@@ -248,7 +360,7 @@ msgstr "Produkte"
 #. module: muk_product
 #: model:ir.actions.act_window,name:muk_product.action_product_search
 msgid "Products Search"
-msgstr "Produktsuche"
+msgstr "Produkte suchen"
 
 #. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_salespricelists
@@ -256,6 +368,10 @@ msgid "Sales"
 msgstr "Verkauf"
 
 #. module: muk_product
+#. odoo-javascript
+#: code:addons/muk_product/static/src/views/kanban/product/product_kanban_view.xml:0
+#: code:addons/muk_product/static/src/views/list/product_list_view.xml:0
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__search_value
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_search_form
 msgid "Search"
 msgstr "Suche"
@@ -266,9 +382,24 @@ msgid "Search Settings"
 msgstr "Sucheneinstellungen"
 
 #. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__search_operator
+msgid "Search with"
+msgstr "Suche mit"
+
+#. module: muk_product
 #: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__value_split_operator__;
 msgid "Semicolon"
 msgstr "Semikolon"
+
+#. module: muk_product
+#: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__value_split_operator___
+msgid "Space"
+msgstr "Raum"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__value_split_operator
+msgid "Split by"
+msgstr "Geteilt nach"
 
 #. module: muk_product
 #: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__value_split_operator__
@@ -276,10 +407,16 @@ msgid "Tab"
 msgstr "Tab"
 
 #. module: muk_product
-#: model_terms:ir.ui.view,arch_db:muk_product.view_product_search
-#: model_terms:ir.ui.view,arch_db:muk_product.view_product_template_search
+#: model_terms:ir.ui.view,arch_db:muk_product.view_product_panel_search
+#: model_terms:ir.ui.view,arch_db:muk_product.view_product_template_panel_search
 msgid "Tags"
 msgstr "Tags"
+
+#. module: muk_product
+#. odoo-python
+#: code:addons/muk_product/models/res_config_settings.py:0
+msgid "The sequence couldn't be found."
+msgstr "Die Sequenz konnte nicht gefunden werden."
 
 #. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_uom_unit
@@ -290,6 +427,11 @@ msgstr "Einheiten & Verpackungen"
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_search_form
 msgid "Value Settings"
 msgstr "Wert Einstellungen"
+
+#. module: muk_product
+#: model:ir.model.fields,field_description:muk_product.field_product_product__fixed_price
+msgid "Variant Price"
+msgstr "Variantenpreis"
 
 #. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_product_product
