@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="web_remove_powered_by_odoo" inherit_id="web.login_layout" priority="10">
+        <xpath expr="//div[child::a[@href='https://www.odoo.com?utm_source=db&amp;utm_medium=auth']]" position="replace"/>
+    </template>
+
+    <template id="disable_database_manager_signup" inherit_id="auth_signup.signup" name="Disable Database Manager (Signup)">
+        <xpath expr="//t[@t-call='web.login_layout']" position="inside">
+            <t t-set="disable_database_manager" t-value="True"/>
+        </xpath>
+    </template>
+
+    <template id="login_extend" inherit_id="web.login" name="Hide DB Access and Superuser">
+        <!-- Hide database selector -->
+        <xpath expr="//div[@t-if='databases and len(databases) &gt; 1']" position="replace">
+            <div class="d-none"></div>
+        </xpath>
+
+        <!-- Hide Superuser (redirect) button -->
+        <xpath expr="//button[@name='redirect']" position="attributes">
+            <attribute name="class">d-none</attribute>
+        </xpath>
+
+        <xpath expr="//t[@t-call='web.login_layout']" position="inside">
+            <t t-set="disable_database_manager" t-value="True"/>
+        </xpath>
+    </template>
+
+    <template id="reset_extend" inherit_id="auth_signup.reset_password" name="Disable Database Manager (Reset)">
+        <xpath expr="//t[@t-call='web.login_layout']" position="inside">
+            <t t-set="disable_database_manager" t-value="True"/>
+        </xpath>
+    </template>
+</odoo>
