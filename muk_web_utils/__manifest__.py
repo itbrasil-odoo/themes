@@ -5,7 +5,7 @@
         Technical module to provide some utility features and libraries that 
         can be used in other applications.
     ''',
-    'version': '18.0.1.0.3',
+    'version': '18.0.1.0.4',
     'category': 'Tools/Utils',
     'license': 'LGPL-3', 
     'author': 'MuK IT',
