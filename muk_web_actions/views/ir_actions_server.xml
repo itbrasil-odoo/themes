@@ -6,7 +6,7 @@
             <field name="model">ir.actions.server</field>
             <field name="inherit_id" ref="base.view_server_action_form"/>
             <field name="arch" type="xml">
-                <xpath expr="//field[@name='group_ids']" position="after">
+                <xpath expr="//field[@name='group_id']" position="after">
                     <field name="execute_in_batch" widget="boolean_toggle"/>
                     <field name="execution_batch_size" invisible="not execute_in_batch"/>
                 </xpath>
