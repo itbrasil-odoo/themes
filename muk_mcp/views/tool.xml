@@ -10,9 +10,11 @@
 				<field name="name"/>
 				<field name="description"/>
 				<field name="category"/>
+				<field name="registry"/>
 				<filter name="active" string="Active" domain="[('active', '=', True)]"/>
                 <group>
 					<filter name="group_category" string="Category" context="{'group_by': 'category'}"/>
+					<filter name="group_registry" string="Registry" context="{'group_by': 'registry'}"/>
                 </group>
 			</search>
 		</field>
@@ -26,11 +28,16 @@
 				<field name="sequence" widget="handle"/>
 				<field name="name"/>
 				<field name="description"/>
-				<field 
-					name="category" 
+				<field
+					name="category"
 					widget="badge"
 					decoration-success="category == 'read'"
 					decoration-warning="category == 'write'"
+				/>
+				<field
+					name="registry"
+					widget="badge"
+					decoration-muted="not registry"
 				/>
 				<field name="active" widget="boolean_toggle"/>
 			</list>
@@ -51,6 +58,7 @@
 					<group>
 						<group>
 							<field name="category"/>
+							<field name="registry"/>
 							<field name="sequence"/>
 						</group>
 						<group>
@@ -89,6 +97,7 @@
 		<field name="res_model">muk_mcp.tool</field>
 		<field name="view_mode">list,form</field>
 		<field name="context">{'search_default_active': 1}</field>
+		<field name="path">mcp-tools</field>
 		<field name="help" type="html">
 			<p class="o_view_nocontent_smiling_face">
 				No MCP tools configured.
