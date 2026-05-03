@@ -19,7 +19,7 @@
 						<button name="action_generate_mcp_key" string="Add MCP Key" type="object" class="btn btn-secondary"/>
 					</div>
 				</group>
-				<group string="MCP Sessions">
+				<group string="MCP Sessions" name="mcp_sessions">
 					<div class="text-muted" colspan="2">
 						Active AI connections.
 					</div>
