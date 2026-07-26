@@ -6,10 +6,18 @@ import { SLASH_COMMANDS } from '@muk_ai/chat/session/use_ai_session';
 let fileInputCounter = 0;
 
 const ACCEPT = [
-    'image/png', 'image/jpeg', 'image/webp', 'image/gif',
-    'application/pdf', 'text/plain', 'text/csv', 'text/markdown', '.md',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+    'application/pdf',
+    'text/plain',
+    'text/csv',
+    'text/markdown',
+    '.md',
 ].join(',');
 
+/** Message composer: text input, attachments, slash commands, and send/stop. */
 export class ChatComposer extends Component {
     static template = 'muk_ai.ChatComposer';
     static components = { AttachmentCard };
@@ -22,12 +30,15 @@ export class ChatComposer extends Component {
         isQueueing: { type: Boolean, optional: true },
         attachments: { type: Array, optional: true },
         canAttach: { type: Boolean, optional: true },
+        agents: { type: Array, optional: true },
+        activeAgentId: { optional: true },
         onInput: { type: Function },
         onSend: { type: Function },
         onStop: { type: Function, optional: true },
         onAttachFiles: { type: Function, optional: true },
         onRemoveAttachment: { type: Function, optional: true },
         onOpenAttachment: { type: Function, optional: true },
+        onSelectAgent: { type: Function, optional: true },
         focusToken: { type: [Number, String], optional: true },
     };
     static defaultProps = {
@@ -37,6 +48,7 @@ export class ChatComposer extends Component {
         isQueueing: false,
         attachments: [],
         canAttach: false,
+        agents: [],
     };
     accept = ACCEPT;
     setup() {
@@ -47,34 +59,42 @@ export class ChatComposer extends Component {
         this.localState = useState({ slashActive: 0 });
         useEffect(
             () => {
-                if (this.inputRef.el) {
-                    this.inputRef.el.focus();
+                const el = this.inputRef.el;
+                if (!el) {
+                    return;
                 }
+                const active = document.activeElement;
+                if (
+                    active &&
+                    active !== el &&
+                    active.matches('textarea, input, [contenteditable="true"]')
+                ) {
+                    return;
+                }
+                el.focus();
             },
             () => [this.props.focusToken],
         );
-        useEffect(
-            () => {
-                const el = this.inputRef.el;
-                if (!el) return;
-                const next = this.props.value || '';
-                if (el.value !== next) {
-                    el.value = next;
-                }
-                const cs = getComputedStyle(el);
-                const lh = parseFloat(cs.lineHeight) || 22;
-                const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-                const maxH = lh * 4 + pad;
-                el.style.height = 'auto';
-                el.style.height = Math.min(el.scrollHeight, maxH) + 'px';
-                el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
-            },
-        );
+        useEffect(() => {
+            const el = this.inputRef.el;
+            if (!el) return;
+            const next = this.props.value || '';
+            if (el.value !== next) {
+                el.value = next;
+            }
+            const cs = getComputedStyle(el);
+            const lh = parseFloat(cs.lineHeight) || 22;
+            const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+            const maxH = lh * 4 + pad;
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, maxH) + 'px';
+            el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden';
+        });
         useEffect(
             () => {
                 this.localState.slashActive = 0;
             },
-            () => [this.slashCommands.length],
+            () => [this.menuItems.length],
         );
     }
     get slashCommands() {
@@ -85,12 +105,30 @@ export class ChatComposer extends Component {
         const prefix = value.split(/\s+/)[0].toLowerCase();
         return SLASH_COMMANDS.filter((c) => c.name.startsWith(prefix));
     }
+    get isAgentMode() {
+        return /^\/agent(\s|$)/.test((this.props.value || '').trimStart());
+    }
+    get agentMatches() {
+        if (!this.isAgentMode) {
+            return [];
+        }
+        const query = (this.props.value || '')
+            .trimStart()
+            .replace(/^\/agent\s*/, '')
+            .toLowerCase();
+        return (this.props.agents || []).filter((a) =>
+            (a.name || '').toLowerCase().includes(query),
+        );
+    }
+    get menuItems() {
+        return this.isAgentMode ? this.agentMatches : this.slashCommands;
+    }
     get showSlashMenu() {
-        return !this.props.disabled && this.slashCommands.length > 0;
+        return !this.props.disabled && this.menuItems.length > 0;
     }
     onKeydown(event) {
         if (this.showSlashMenu) {
-            const count = this.slashCommands.length;
+            const count = this.menuItems.length;
             if (event.key === 'ArrowDown') {
                 event.preventDefault();
                 this.localState.slashActive = (this.localState.slashActive + 1) % count;
@@ -98,18 +136,30 @@ export class ChatComposer extends Component {
             }
             if (event.key === 'ArrowUp') {
                 event.preventDefault();
-                this.localState.slashActive = (this.localState.slashActive - 1 + count) % count;
+                this.localState.slashActive =
+                    (this.localState.slashActive - 1 + count) % count;
                 return;
             }
             if (event.key === 'Tab' && !event.shiftKey) {
                 event.preventDefault();
-                this.pickSlashCommand(this.localState.slashActive);
+                this.pickActive(this.localState.slashActive);
                 return;
             }
             if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
                 event.preventDefault();
+                if (this.isAgentMode) {
+                    this.pickAgent(this.localState.slashActive);
+                    return;
+                }
+                const cmd = this.slashCommands[this.localState.slashActive];
+                const typed = (this.props.value || '').trim().toLowerCase();
+                const wasAutocomplete = cmd && typed !== cmd.name;
                 this.pickSlashCommand(this.localState.slashActive);
-                this.onSendOrStop();
+                const holdSend =
+                    cmd && (cmd.opensPicker || (cmd.destructive && wasAutocomplete));
+                if (cmd && !holdSend) {
+                    this.onSendOrStop();
+                }
                 return;
             }
             if (event.key === 'Escape') {
@@ -124,6 +174,13 @@ export class ChatComposer extends Component {
         event.preventDefault();
         this.onSendOrStop();
     }
+    pickActive(index) {
+        if (this.isAgentMode) {
+            this.pickAgent(index);
+        } else {
+            this.pickSlashCommand(index);
+        }
+    }
     pickSlashCommand(index) {
         const cmd = this.slashCommands[index];
         if (!cmd) {
@@ -135,6 +192,17 @@ export class ChatComposer extends Component {
         this.props.onInput(cmd.name + tail);
         this.localState.slashActive = 0;
     }
+    pickAgent(index) {
+        const agent = this.agentMatches[index];
+        if (!agent) {
+            return;
+        }
+        if (this.props.onSelectAgent) {
+            this.props.onSelectAgent(agent.id);
+        }
+        this.props.onInput('');
+        this.localState.slashActive = 0;
+    }
     hoverSlashCommand(index) {
         this.localState.slashActive = index;
     }
@@ -142,7 +210,9 @@ export class ChatComposer extends Component {
         this.props.onInput(event.target.value);
     }
     onSendOrStop() {
-        if (this.props.canSend && this.props.isQueueing) {
+        const hasLiveText = !!(this.inputRef.el && this.inputRef.el.value.trim());
+        const canSend = this.props.canSend || hasLiveText;
+        if (canSend && this.props.isQueueing) {
             this.props.onSend();
             return;
         }
@@ -150,7 +220,7 @@ export class ChatComposer extends Component {
             this.props.onStop();
             return;
         }
-        if (this.props.canSend) {
+        if (canSend) {
             this.props.onSend();
         }
     }

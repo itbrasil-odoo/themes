@@ -3,6 +3,7 @@ import { markup, onWillUnmount, useEnv, useState } from '@odoo/owl';
 import { ConfirmationDialog } from '@web/core/confirmation_dialog/confirmation_dialog';
 import { _t } from '@web/core/l10n/translation';
 import { useService } from '@web/core/utils/hooks';
+import { SelectCreateDialog } from '@web/views/view_dialogs/select_create_dialog';
 
 import { fileToBase64 } from '@muk_ai/core/attachment/file_helpers';
 import { renderMarkdown as renderMarkdownToHtml } from '@muk_ai/core/markdown/markdown';
@@ -37,23 +38,40 @@ export const SLASH_COMMANDS = [
         hint: 'Show available slash commands',
     },
     {
-        name: '/clear',
-        hint: 'Start a fresh conversation in this session',
-    },
-    {
         name: '/compact',
         hint: 'Summarize and collapse older turns to free context',
+    },
+    {
+        name: '/clear',
+        hint: 'Start a fresh conversation in this session',
+        destructive: true,
     },
     {
         name: '/unpin',
         hint: 'Clear the view context pinned to this session',
     },
+    {
+        name: '/agent',
+        hint: 'Switch the active agent',
+        opensPicker: true,
+    },
+    {
+        name: '/handover',
+        hint: 'Transfer this chat to another user',
+    },
 ];
 
 const COMPACT_WARN_RATIO = 0.65;
-const COMPACT_AUTO_RATIO = 0.80;
+const COMPACT_AUTO_RATIO = 0.8;
 const STREAM_IDLE_MS = 3000;
 
+let clientKeySeq = 0;
+
+/**
+ * Hook owning an AI chat session: state, streaming, tool calls, and commands.
+ * @param {object} [options] session hook options (callbacks, defaults)
+ * @returns {object} reactive session API consumed by chat components
+ */
 export function useAiSession(options = {}) {
     const orm = useService('orm');
     const bus = useService('bus_service');
@@ -99,11 +117,14 @@ export function useAiSession(options = {}) {
         streamIdle: false,
         resumeAt: '',
     });
-    let busHandler = null;
     let eventKeys = new Set();
     let onScrollCallback = null;
     let streamIdleTimer = null;
     let loadSeq = 0;
+    let pendingLoad = null;
+    let requeueRerouting = false;
+    const busHandler = (payload) => onBusEvent(payload);
+    bus.subscribe('muk_ai.event', busHandler);
     function clearStreamIdleTimer() {
         if (streamIdleTimer) {
             clearTimeout(streamIdleTimer);
@@ -125,20 +146,15 @@ export function useAiSession(options = {}) {
             }
         }, STREAM_IDLE_MS);
     }
-    function connectBus() {
-        disconnectBus();
-        busHandler = (payload) => onBusEvent(payload);
-        bus.subscribe('muk_ai.event', busHandler);
-    }
-    function disconnectBus() {
-        if (busHandler) {
-            bus.unsubscribe('muk_ai.event', busHandler);
-            busHandler = null;
-        }
+    function contentKey(entry) {
+        const { at: _at, event_id: _id, _clientKey: _ck, ...rest } = entry || {};
+        return canonicalStringify(rest);
     }
     function eventKey(entry) {
-        const {at, ...rest} = entry || {};
-        return canonicalStringify(rest);
+        if (entry && entry.event_id != null) {
+            return 'id:' + entry.event_id;
+        }
+        return contentKey(entry);
     }
     function canonicalStringify(value) {
         if (value === null || typeof value !== 'object') {
@@ -148,12 +164,23 @@ export function useAiSession(options = {}) {
             return '[' + value.map(canonicalStringify).join(',') + ']';
         }
         const keys = Object.keys(value).sort();
-        return '{' + keys.map(
-            (k) => JSON.stringify(k) + ':' + canonicalStringify(value[k]),
-        ).join(',') + '}';
+        return (
+            '{' +
+            keys
+                .map((k) => JSON.stringify(k) + ':' + canonicalStringify(value[k]))
+                .join(',') +
+            '}'
+        );
     }
     function onBusEvent(event) {
-        if (!event || event.session_id !== state.sessionId) {
+        if (!event) {
+            return;
+        }
+        if (pendingLoad && event.session_id === pendingLoad.sessionId) {
+            pendingLoad.buffer.push(event);
+            return;
+        }
+        if (event.session_id !== state.sessionId) {
             return;
         }
         if (event.type === 'log') {
@@ -162,7 +189,24 @@ export function useAiSession(options = {}) {
                 return;
             }
             eventKeys.add(key);
-            state.events = [...state.events, event.payload];
+            const twinKey = contentKey(event.payload);
+            const twinIndex = state.events.findIndex(
+                (entry) =>
+                    entry &&
+                    entry._clientKey &&
+                    entry.event_id == null &&
+                    contentKey(entry) === twinKey,
+            );
+            if (twinIndex >= 0) {
+                const next = [...state.events];
+                next[twinIndex] = {
+                    ...event.payload,
+                    _clientKey: next[twinIndex]._clientKey,
+                };
+                state.events = next;
+            } else {
+                state.events = [...state.events, event.payload];
+            }
             const kind = event.payload?.kind;
             if (kind === 'text') {
                 state.streamingText = '';
@@ -209,7 +253,21 @@ export function useAiSession(options = {}) {
                 return;
             }
             state.streamingTools = state.streamingTools.map((t) =>
-                t.callId === callId ? { ...t, argsBuffer: (t.argsBuffer || '') + delta } : t,
+                t.callId === callId
+                    ? { ...t, argsBuffer: (t.argsBuffer || '') + delta }
+                    : t,
+            );
+            bumpStreamActivity();
+            requestScroll();
+        } else if (event.type === 'tool_call_result') {
+            const { call_id: callId, result } = event.payload || {};
+            if (!callId) {
+                return;
+            }
+            state.streamingTools = state.streamingTools.map((t) =>
+                t.callId === callId
+                    ? { ...t, done: true, result: result === undefined ? null : result }
+                    : t,
             );
             bumpStreamActivity();
             requestScroll();
@@ -245,12 +303,22 @@ export function useAiSession(options = {}) {
             }
             if (event.payload.resume_at !== undefined) {
                 state.resumeAt = normalizeResumeAt(event.payload.resume_at);
-            } else if (event.payload.state && event.payload.state !== 'waiting_schedule') {
+            } else if (
+                event.payload.state &&
+                event.payload.state !== 'waiting_schedule'
+            ) {
                 state.resumeAt = '';
             }
         } else if (event.type === 'rename') {
             if (event.payload && event.payload.name) {
                 state.name = event.payload.name;
+            }
+        } else if (event.type === 'agent_switched') {
+            const payload = event.payload || {};
+            state.agentId = payload.agent_id || null;
+            state.agentName = payload.agent_name || '';
+            if (payload.effective_approval_mode) {
+                state.effectiveApprovalMode = payload.effective_approval_mode;
             }
         } else if (event.type === 'ui_action') {
             handleUiAction(event.payload);
@@ -265,8 +333,15 @@ export function useAiSession(options = {}) {
                 return;
             }
             state.events = state.events.map((entry) => {
-                if (entry && entry.event_id === eventId && entry.kind === 'compact_progress') {
-                    return { ...entry, streamed_text: (entry.streamed_text || '') + delta };
+                if (
+                    entry &&
+                    entry.event_id === eventId &&
+                    entry.kind === 'compact_progress'
+                ) {
+                    return {
+                        ...entry,
+                        streamed_text: (entry.streamed_text || '') + delta,
+                    };
                 }
                 return entry;
             });
@@ -279,7 +354,11 @@ export function useAiSession(options = {}) {
                 return;
             }
             state.events = state.events.map((entry) => {
-                if (entry && entry.event_id === eventId && entry.kind === 'compact_progress') {
+                if (
+                    entry &&
+                    entry.event_id === eventId &&
+                    entry.kind === 'compact_progress'
+                ) {
                     return { ...entry, ...patch };
                 }
                 return entry;
@@ -317,27 +396,31 @@ export function useAiSession(options = {}) {
         const previousSessionId = state.sessionId;
         state.loading = true;
         if (!sessionId) {
-            disconnectBus();
+            pendingLoad = null;
             sessionNotification.markInactive(previousSessionId);
             clearStreamIdleTimer();
             _resetSessionState(null);
             state.loading = false;
             return null;
         }
+        const myLoad = { sessionId, buffer: [] };
+        pendingLoad = myLoad;
         let record = null;
         let snapshot = null;
         let loadError = null;
         try {
             const [result] = await orm.read(
-                'muk_ai.session', [sessionId], SESSION_READ_FIELDS,
+                'muk_ai.session',
+                [sessionId],
+                SESSION_READ_FIELDS,
             );
             record = result || null;
             if (record) {
                 try {
-                    snapshot = await orm.call(
-                        'muk_ai.session', 'get_snapshot', [sessionId],
-                    );
-                } catch (error) {
+                    snapshot = await orm.call('muk_ai.session', 'get_snapshot', [
+                        sessionId,
+                    ]);
+                } catch {
                     snapshot = null;
                 }
             }
@@ -347,10 +430,12 @@ export function useAiSession(options = {}) {
         if (seq !== loadSeq) {
             return record;
         }
-        disconnectBus();
         sessionNotification.markInactive(previousSessionId);
         clearStreamIdleTimer();
         _resetSessionState(sessionId);
+        if (pendingLoad === myLoad) {
+            pendingLoad = null;
+        }
         if (loadError) {
             state.error = formatError(loadError);
             state.loading = false;
@@ -365,10 +450,11 @@ export function useAiSession(options = {}) {
                 state.hasMoreOlder = !!snapshot.has_more_older;
                 rebuildEventKeys();
             }
-            connectBus();
+            for (const buffered of myLoad.buffer) {
+                onBusEvent(buffered);
+            }
         }
         state.loading = false;
-        state.focusToken += 1;
         return record;
     }
     function _resetSessionState(sessionId) {
@@ -419,7 +505,7 @@ export function useAiSession(options = {}) {
             try {
                 const utc = value.toUTC();
                 return utc.isValid ? utc.toISO() : '';
-            } catch (_e) {
+            } catch {
                 return '';
             }
         }
@@ -434,15 +520,45 @@ export function useAiSession(options = {}) {
         state.agentId = Array.isArray(agent) ? agent[0] : null;
         state.agentName = Array.isArray(agent) ? agent[1] : '';
         const owner = record.user_id;
-        state.ownerId = Array.isArray(owner) ? owner[0] : (typeof owner === 'number' ? owner : null);
+        state.ownerId = Array.isArray(owner)
+            ? owner[0]
+            : typeof owner === 'number'
+              ? owner
+              : null;
         rebuildEventKeys();
     }
     function applySnapshot(snapshot) {
         if (!snapshot) {
             return;
         }
+        if (snapshot.id && snapshot.id !== state.sessionId) {
+            return;
+        }
         applySessionFields(snapshot);
-        const incomingEvents = snapshot.events || [];
+        const clientKeysById = new Map();
+        const clientKeysByContent = new Map();
+        for (const entry of state.events || []) {
+            if (!entry || !entry._clientKey) {
+                continue;
+            }
+            if (entry.event_id != null) {
+                clientKeysById.set(entry.event_id, entry._clientKey);
+            } else {
+                clientKeysByContent.set(contentKey(entry), entry._clientKey);
+            }
+        }
+        let incomingEvents = snapshot.events || [];
+        if (clientKeysById.size || clientKeysByContent.size) {
+            incomingEvents = incomingEvents.map((entry) => {
+                if (!entry) {
+                    return entry;
+                }
+                const key =
+                    clientKeysById.get(entry.event_id) ??
+                    clientKeysByContent.get(contentKey(entry));
+                return key ? { ...entry, _clientKey: key } : entry;
+            });
+        }
         if (incomingEvents.length || state.status !== 'running') {
             state.events = incomingEvents;
             if (snapshot.oldest_sequence !== undefined) {
@@ -452,11 +568,11 @@ export function useAiSession(options = {}) {
                 state.hasMoreOlder = !!snapshot.has_more_older;
             }
         }
-        const preserveStreaming = state.status === 'running' && (
-            (state.streamingText && state.streamingText.length)
-            || (state.streamingReasoning && state.streamingReasoning.length)
-            || (state.streamingTools && state.streamingTools.length)
-        );
+        const preserveStreaming =
+            state.status === 'running' &&
+            ((state.streamingText && state.streamingText.length) ||
+                (state.streamingReasoning && state.streamingReasoning.length) ||
+                (state.streamingTools && state.streamingTools.length));
         if (!preserveStreaming) {
             state.streamingText = '';
             state.streamingReasoning = '';
@@ -465,24 +581,28 @@ export function useAiSession(options = {}) {
         rebuildEventKeys();
     }
     function rebuildEventKeys() {
-        eventKeys = new Set(
-            (state.events || []).map((entry) => eventKey(entry)),
-        );
+        eventKeys = new Set((state.events || []).map((entry) => eventKey(entry)));
     }
     async function loadMoreEvents() {
         if (state.loadingOlder || !state.hasMoreOlder || !state.sessionId) {
             return;
         }
+        const sessionId = state.sessionId;
+        const seq = loadSeq;
         state.loadingOlder = true;
         try {
             const result = await orm.call(
-                'muk_ai.session', 'fetch_events',
-                [state.sessionId],
+                'muk_ai.session',
+                'fetch_events',
+                [sessionId],
                 {
                     limit: 100,
                     before_sequence: state.oldestSequence,
                 },
             );
+            if (seq !== loadSeq || state.sessionId !== sessionId) {
+                return;
+            }
             const incoming = result.events || [];
             const merged = [...incoming, ...state.events];
             const seen = new Set();
@@ -494,25 +614,27 @@ export function useAiSession(options = {}) {
                 seen.add(k);
                 return true;
             });
-            if (result.oldest_sequence !== undefined && result.oldest_sequence !== null) {
+            if (
+                result.oldest_sequence !== undefined &&
+                result.oldest_sequence !== null
+            ) {
                 state.oldestSequence = result.oldest_sequence;
             }
             state.hasMoreOlder = !!result.has_more_older;
             rebuildEventKeys();
         } finally {
-            state.loadingOlder = false;
+            if (seq === loadSeq && state.sessionId === sessionId) {
+                state.loadingOlder = false;
+            }
         }
     }
     function canSend() {
-        const hasContent = state.input.trim().length > 0
-            || state.pendingAttachments.length > 0;
-        return !!state.sessionId && !state.loading
-            && state.status !== 'running' && hasContent;
+        const hasContent =
+            state.input.trim().length > 0 || state.pendingAttachments.length > 0;
+        return !!state.sessionId && !state.loading && hasContent;
     }
     function canAttach() {
-        return !!state.sessionId
-            && !state.loading
-            && state.status !== 'running';
+        return !!state.sessionId && !state.loading && state.status !== 'running';
     }
     function canStop() {
         return state.status === 'running';
@@ -521,15 +643,41 @@ export function useAiSession(options = {}) {
         return false;
     }
     function isQueueing() {
-        return state.status === 'running'
-            || state.status === 'compacting'
-            || (
-                state.status === 'waiting'
-                && (state.pendingAsk || {}).kind === 'approval'
-            );
+        return (
+            state.status === 'running' ||
+            state.status === 'compacting' ||
+            (state.status === 'waiting' && (state.pendingAsk || {}).kind === 'approval')
+        );
     }
     function onInputChange(value) {
         state.input = value;
+    }
+    /**
+     * Re-dispatch a message the server refused to queue (the turn ended
+     * mid-flight, so no drain would ever run it) through the regular
+     * send path, preserving any draft typed meanwhile.
+     * @param {object} snapshot
+     * @param {string} message
+     * @param {Array} attachments
+     */
+    async function redispatchRejected(snapshot, message, attachments) {
+        applySnapshot(snapshot);
+        const draft = state.input;
+        const draftAttachments = [...state.pendingAttachments];
+        state.input = message;
+        state.pendingAttachments = attachments;
+        if (!requeueRerouting) {
+            requeueRerouting = true;
+            try {
+                await onSend();
+            } finally {
+                requeueRerouting = false;
+            }
+            if (draft) {
+                state.input = draft;
+                state.pendingAttachments = draftAttachments;
+            }
+        }
     }
     async function onSend() {
         if (!canSend()) {
@@ -548,20 +696,30 @@ export function useAiSession(options = {}) {
         state.input = '';
         state.pendingAttachments = [];
         if (isQueueing()) {
+            const optimisticKey = 'ck' + ++clientKeySeq;
             const optimisticEntry = {
                 content: message,
                 attachment_ids: attachmentIds,
                 queued_at: new Date().toISOString(),
+                _clientKey: optimisticKey,
             };
             state.pendingMessages = [...state.pendingMessages, optimisticEntry];
             state.focusToken += 1;
-            requestScroll();
+            requestScroll(true);
             try {
                 const snapshot = await orm.call(
-                    'muk_ai.session', 'enqueue_message',
+                    'muk_ai.session',
+                    'enqueue_message',
                     [state.sessionId, message],
                     { attachment_ids: attachmentIds },
                 );
+                if (snapshot && snapshot.queue_rejected_state) {
+                    state.pendingMessages = state.pendingMessages.filter(
+                        (m) => m?._clientKey !== optimisticKey,
+                    );
+                    await redispatchRejected(snapshot, message, attachments);
+                    return;
+                }
                 applySnapshot(snapshot);
             } catch (error) {
                 notification.add(
@@ -569,47 +727,74 @@ export function useAiSession(options = {}) {
                     { type: 'danger' },
                 );
                 state.pendingMessages = state.pendingMessages.filter(
-                    (m) => m !== optimisticEntry,
+                    (m) => m?._clientKey !== optimisticKey,
                 );
             }
             return;
         }
         await maybeAutoCompact();
-        const wasWaitingQuestion = state.status === 'waiting'
-            && (state.pendingAsk || {}).kind === 'question';
+        const wasWaitingQuestion =
+            state.status === 'waiting' && (state.pendingAsk || {}).kind === 'question';
+        const clientKey = 'ck' + ++clientKeySeq;
         const optimistic = wasWaitingQuestion
             ? {
                   kind: 'answer',
                   answer: message,
                   question: (state.pendingAsk || {}).text,
                   attachments,
+                  _clientKey: clientKey,
               }
-            : { kind: 'user_message', content: message, attachments };
+            : {
+                  kind: 'user_message',
+                  content: message,
+                  attachments,
+                  _clientKey: clientKey,
+              };
         state.events = [...state.events, optimistic];
         eventKeys.add(eventKey(optimistic));
         state.streamingText = '';
         state.streamingReasoning = '';
         state.streamingTools = [];
+        const previousAsk = state.pendingAsk;
+        const previousStatus = state.status;
         state.pendingAsk = null;
         state.status = 'running';
         state.error = null;
-        requestScroll();
+        requestScroll(true);
         try {
             const method = wasWaitingQuestion
                 ? 'answer'
-                : (
-                    state.iterationCount === 0 && state.events.length <= 1 && !state.streamingText
-                        ? 'start'
-                        : 'send_message'
-                );
+                : state.iterationCount === 0 &&
+                    state.events.length <= 1 &&
+                    !state.streamingText
+                  ? 'start'
+                  : 'send_message';
             const snapshot = await orm.call(
-                'muk_ai.session', method,
+                'muk_ai.session',
+                method,
                 [state.sessionId, message],
                 { attachment_ids: attachmentIds },
             );
+            if (snapshot && snapshot.queue_rejected_state) {
+                state.events = state.events.filter(
+                    (entry) => entry?._clientKey !== clientKey,
+                );
+                eventKeys.delete(eventKey(optimistic));
+                await redispatchRejected(snapshot, message, attachments);
+                return;
+            }
             applySnapshot(snapshot);
         } catch (error) {
-            state.status = 'error';
+            if (wasWaitingQuestion) {
+                state.events = state.events.filter(
+                    (entry) => entry?._clientKey !== clientKey,
+                );
+                eventKeys.delete(eventKey(optimistic));
+                state.pendingAsk = previousAsk;
+                state.status = previousStatus;
+            } else {
+                state.status = 'error';
+            }
             state.error = formatError(error);
         }
         state.focusToken += 1;
@@ -620,14 +805,12 @@ export function useAiSession(options = {}) {
             return;
         }
         const removed = state.pendingMessages[index];
-        state.pendingMessages = state.pendingMessages.filter(
-            (_m, i) => i !== index,
-        );
+        state.pendingMessages = state.pendingMessages.filter((_m, i) => i !== index);
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'cancel_queued',
-                [state.sessionId, index],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'cancel_queued', [
+                state.sessionId,
+                index,
+            ]);
             applySnapshot(snapshot);
         } catch (error) {
             if (removed) {
@@ -648,37 +831,47 @@ export function useAiSession(options = {}) {
             return;
         }
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'action_stop', [state.sessionId],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'action_stop', [
+                state.sessionId,
+            ]);
             applySnapshot(snapshot);
         } catch (error) {
-            notification.add(
-                _t('Failed to stop session: %s', formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Failed to stop session: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
     }
     async function onRegenerate() {
-        if (!state.sessionId || state.status === 'running' || state.status === 'waiting') {
+        if (
+            !state.sessionId ||
+            state.status === 'running' ||
+            state.status === 'compacting' ||
+            state.status === 'waiting'
+        ) {
             return;
         }
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'regenerate_last_turn', [state.sessionId],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'regenerate_last_turn', [
+                state.sessionId,
+            ]);
             applySnapshot(snapshot);
         } catch (error) {
-            notification.add(
-                _t('Failed to regenerate: %s', formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Failed to regenerate: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
     }
     function canRegenerate() {
         if (!state.sessionId) return false;
-        if (state.status === 'running' || state.status === 'waiting') return false;
-        return (state.events || []).some((e) => e.kind === 'user_message' || e.kind === 'answer');
+        if (
+            state.status === 'running' ||
+            state.status === 'compacting' ||
+            state.status === 'waiting'
+        )
+            return false;
+        return (state.events || []).some(
+            (e) => e.kind === 'user_message' || e.kind === 'answer',
+        );
     }
     async function onAttachFiles(files) {
         if (!state.sessionId || !files || !files.length) {
@@ -686,18 +879,15 @@ export function useAiSession(options = {}) {
         }
         try {
             const payloads = await Promise.all(files.map((file) => fileToBase64(file)));
-            const descriptors = await orm.call(
-                'muk_ai.session', 'upload_attachments',
-                [state.sessionId, payloads],
-            );
-            state.pendingAttachments = [
-                ...state.pendingAttachments, ...descriptors,
-            ];
+            const descriptors = await orm.call('muk_ai.session', 'upload_attachments', [
+                state.sessionId,
+                payloads,
+            ]);
+            state.pendingAttachments = [...state.pendingAttachments, ...descriptors];
         } catch (error) {
-            notification.add(
-                _t('Attachment upload failed: %s', formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Attachment upload failed: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
     }
     function parseSlashCommand(raw) {
@@ -734,27 +924,56 @@ export function useAiSession(options = {}) {
             await runUnpin();
             return;
         }
+        if (slash.name === '/agent') {
+            await runSwitchAgent(slash.args);
+            return;
+        }
+        if (slash.name === '/handover') {
+            openHandoverPicker(slash.args);
+            return;
+        }
+    }
+    async function runSwitchAgent(query) {
+        const agents = state.agents || [];
+        if (!agents.length) {
+            notification.add(_t('No agents available to switch to.'), {
+                type: 'warning',
+            });
+            return;
+        }
+        const q = (query || '').trim().toLowerCase();
+        let target = agents.find((a) => (a.name || '').toLowerCase() === q);
+        if (!target && q) {
+            target = agents.find((a) => (a.name || '').toLowerCase().includes(q));
+        }
+        if (!target) {
+            notification.add(
+                _t(
+                    'No agent matches "%s". Type /agent to pick from the list.',
+                    query || '',
+                ),
+                { type: 'warning' },
+            );
+            return;
+        }
+        await onSetAgent(target.id);
     }
     async function runUnpin() {
         if (!state.sessionId) {
             return;
         }
         if (!state.viewContext) {
-            notification.add(
-                _t("No view context is pinned."),
-                { type: 'info' },
-            );
+            notification.add(_t('No view context is pinned.'), { type: 'info' });
             return;
         }
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'unpin_view_context',
-                [state.sessionId],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'unpin_view_context', [
+                state.sessionId,
+            ]);
             applySnapshot(snapshot);
         } catch (error) {
             notification.add(
-                _t("Failed to clear view context: %s", formatError(error)),
+                _t('Failed to clear view context: %s', formatError(error)),
                 { type: 'danger' },
             );
         }
@@ -764,32 +983,25 @@ export function useAiSession(options = {}) {
             return;
         }
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'set_approval_mode',
-                [state.sessionId, mode || false],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'set_approval_mode', [
+                state.sessionId,
+                mode || false,
+            ]);
             applySnapshot(snapshot);
         } catch (error) {
             notification.add(
-                _t("Failed to set approval mode: %s", formatError(error)),
+                _t('Failed to set approval mode: %s', formatError(error)),
                 { type: 'danger' },
             );
         }
     }
     function isAwaitingApproval() {
-        return state.status === 'waiting'
-            && (state.pendingAsk || {}).kind === 'approval';
+        return (
+            state.status === 'waiting' && (state.pendingAsk || {}).kind === 'approval'
+        );
     }
     function cycleApprovalMode() {
-        const current = state.approvalMode;
-        let next;
-        if (!current) {
-            next = 'ask';
-        } else if (current === 'ask') {
-            next = 'off';
-        } else {
-            next = false;
-        }
+        const next = state.effectiveApprovalMode === 'off' ? 'ask' : 'off';
         return setApprovalMode(next);
     }
     async function answerWithOption(option) {
@@ -819,7 +1031,10 @@ export function useAiSession(options = {}) {
         }
         try {
             const snapshot = await orm.call(
-                'muk_ai.session', method, [state.sessionId], kwargs,
+                'muk_ai.session',
+                method,
+                [state.sessionId],
+                kwargs,
             );
             applySnapshot(snapshot);
         } catch (error) {
@@ -827,15 +1042,13 @@ export function useAiSession(options = {}) {
         }
     }
     async function approveTool() {
-        return _runApproval(
-            'approve_tool',
-            (e) => _t('Failed to approve tool: %s', formatError(e)),
+        return _runApproval('approve_tool', (e) =>
+            _t('Failed to approve tool: %s', formatError(e)),
         );
     }
     async function approveForSession() {
-        return _runApproval(
-            'approve_for_session',
-            (e) => _t('Failed to approve tool: %s', formatError(e)),
+        return _runApproval('approve_for_session', (e) =>
+            _t('Failed to approve tool: %s', formatError(e)),
         );
     }
     async function rejectTool(reason) {
@@ -870,16 +1083,13 @@ export function useAiSession(options = {}) {
             maybePopoutBeforeAction();
             await actionService.doAction(action);
         } catch (error) {
-            notification.add(
-                _t("Failed to open view: %s", formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Failed to open view: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
     }
     function _helpSummary() {
-        return SLASH_COMMANDS
-            .map((c) => `**${c.name}** — ${c.hint}`)
-            .join('\n\n');
+        return SLASH_COMMANDS.map((c) => `**${c.name}** — ${c.hint}`).join('\n\n');
     }
     function appendLocalCommandLog(name, extra) {
         const entry = {
@@ -896,63 +1106,43 @@ export function useAiSession(options = {}) {
             return;
         }
         if (state.status === 'running') {
-            notification.add(
-                _t("Stop the running session before clearing."),
-                { type: 'warning' },
-            );
-            return;
-        }
-        const confirmed = await new Promise((resolve) => {
-            dialog.add(ConfirmationDialog, {
-                title: _t("Clear context"),
-                body: _t(
-                    "Reset the LLM's context for this session? " +
-                    "The visible chat history stays on screen above a divider; " +
-                    "only the model loses memory of prior turns.",
-                ),
-                confirmLabel: _t("Clear"),
-                cancelLabel: _t("Cancel"),
-                confirm: () => resolve(true),
-                cancel: () => resolve(false),
+            notification.add(_t('Stop the running session before clearing.'), {
+                type: 'warning',
             });
-        });
-        if (!confirmed) {
             return;
         }
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'clear', [state.sessionId],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'clear', [
+                state.sessionId,
+            ]);
             applySnapshot(snapshot);
             if (options.onRefresh) {
                 await options.onRefresh();
             }
         } catch (error) {
-            notification.add(
-                _t("Failed to clear session: %s", formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Failed to clear session: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
     }
-    async function runCompact({ silent }) {
+    async function runCompact({ silent: _silent }) {
         if (!state.sessionId) {
             return;
         }
         if (state.status === 'running') {
-            notification.add(
-                _t("Stop the running session before compacting."),
-                { type: 'warning' },
-            );
+            notification.add(_t('Stop the running session before compacting.'), {
+                type: 'warning',
+            });
             return;
         }
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'compact', [state.sessionId],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'compact', [
+                state.sessionId,
+            ]);
             applySnapshot(snapshot);
         } catch (error) {
             notification.add(
-                _t("Failed to compact conversation: %s", formatError(error)),
+                _t('Failed to compact conversation: %s', formatError(error)),
                 { type: 'danger' },
             );
         }
@@ -962,15 +1152,14 @@ export function useAiSession(options = {}) {
             return;
         }
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'stop_compact', [state.sessionId],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'stop_compact', [
+                state.sessionId,
+            ]);
             applySnapshot(snapshot);
         } catch (error) {
-            notification.add(
-                _t("Failed to stop compaction: %s", formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Failed to stop compaction: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
     }
     function _eventsFromOrAfter(eventId) {
@@ -985,25 +1174,27 @@ export function useAiSession(options = {}) {
         if (!state.sessionId || !eventId) {
             return;
         }
-        if (state.status === 'running' || state.status === 'compacting'
-                || state.status === 'waiting') {
-            notification.add(
-                _t("Stop the session before rewinding."),
-                { type: 'warning' },
-            );
+        if (
+            state.status === 'running' ||
+            state.status === 'compacting' ||
+            state.status === 'waiting'
+        ) {
+            notification.add(_t('Stop the session before rewinding.'), {
+                type: 'warning',
+            });
             return;
         }
         const dropCount = _eventsFromOrAfter(eventId);
         const confirmed = await new Promise((resolve) => {
             dialog.add(ConfirmationDialog, {
-                title: _t("Rewind conversation"),
+                title: _t('Rewind conversation'),
                 body: _t(
-                    "Remove this message and the %s event(s) that follow from "
-                    + "the conversation? This cannot be undone.",
+                    'Remove this message and the %s event(s) that follow from ' +
+                        'the conversation? This cannot be undone.',
                     dropCount,
                 ),
-                confirmLabel: _t("Rewind"),
-                cancelLabel: _t("Cancel"),
+                confirmLabel: _t('Rewind'),
+                cancelLabel: _t('Cancel'),
                 confirm: () => resolve(true),
                 cancel: () => resolve(false),
             });
@@ -1012,19 +1203,18 @@ export function useAiSession(options = {}) {
             return;
         }
         try {
-            const snapshot = await orm.call(
-                'muk_ai.session', 'undo_to_event',
-                [state.sessionId, eventId],
-            );
+            const snapshot = await orm.call('muk_ai.session', 'undo_to_event', [
+                state.sessionId,
+                eventId,
+            ]);
             applySnapshot(snapshot);
             if (options.onRefresh) {
                 await options.onRefresh();
             }
         } catch (error) {
-            notification.add(
-                _t("Failed to rewind: %s", formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Failed to rewind: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
     }
     async function runForkAtEvent(eventId) {
@@ -1032,30 +1222,84 @@ export function useAiSession(options = {}) {
             return;
         }
         if (state.status === 'running' || state.status === 'compacting') {
-            notification.add(
-                _t("Stop the session before forking."),
-                { type: 'warning' },
-            );
+            notification.add(_t('Stop the session before forking.'), {
+                type: 'warning',
+            });
             return;
         }
         try {
-            const newId = await orm.call(
-                'muk_ai.session', 'fork_at_event',
-                [state.sessionId, eventId],
-            );
-            notification.add(
-                _t("Forked into a new session."),
-                { type: 'success' },
-            );
+            const newId = await orm.call('muk_ai.session', 'fork_at_event', [
+                state.sessionId,
+                eventId,
+            ]);
+            notification.add(_t('Forked into a new session.'), { type: 'success' });
             if (options.onForked) {
                 await options.onForked(newId);
             }
         } catch (error) {
-            notification.add(
-                _t("Failed to fork: %s", formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Failed to fork: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
+    }
+    async function onHandover(userId) {
+        if (!state.sessionId || !userId) {
+            return;
+        }
+        if (state.status === 'running' || state.status === 'compacting') {
+            notification.add(_t('Stop the session before handing it over.'), {
+                type: 'warning',
+            });
+            return;
+        }
+        try {
+            await orm.call('muk_ai.session', 'action_handover', [
+                state.sessionId,
+                userId,
+            ]);
+            notification.add(_t('Chat handed over.'), { type: 'success' });
+            if (options.onHandedOver) {
+                await options.onHandedOver(state.sessionId);
+            }
+        } catch (error) {
+            notification.add(_t('Failed to hand over: %s', formatError(error)), {
+                type: 'danger',
+            });
+        }
+    }
+    /**
+     * Open a user picker and hand the current chat to the chosen user.
+     * @param {string} [query] optional name prefilter typed after /handover
+     */
+    function openHandoverPicker(query = '') {
+        if (!state.sessionId) {
+            return;
+        }
+        const domain = [
+            ['share', '=', false],
+            ['active', '=', true],
+            ['id', '!=', state.ownerId],
+        ];
+        if (query) {
+            domain.push(['name', 'ilike', query]);
+        }
+        dialog.add(SelectCreateDialog, {
+            resModel: 'res.users',
+            title: _t('Hand over chat to…'),
+            domain,
+            noCreate: true,
+            multiSelect: false,
+            context: {
+                list_view_ref: 'muk_ai.view_res_users_list_handover',
+                kanban_view_ref: 'muk_ai.view_res_users_kanban_handover',
+                search_view_ref: 'muk_ai.view_res_users_search_handover',
+            },
+            onSelected: (resIds) => {
+                if (resIds && resIds[0]) {
+                    onHandover(resIds[0]);
+                }
+            },
+        });
     }
     async function maybeAutoCompact() {
         if (!state.contextWindow || !state.lastInputTokens) {
@@ -1065,16 +1309,18 @@ export function useAiSession(options = {}) {
         if (ratio >= COMPACT_AUTO_RATIO) {
             await runCompact({ silent: true });
             notification.add(
-                _t("Auto-compacted: context window was %s%% full.",
-                    Math.round(ratio * 100)),
+                _t(
+                    'Auto-compacted: context window was %s%% full.',
+                    Math.round(ratio * 100),
+                ),
                 { type: 'info' },
             );
         } else if (ratio >= COMPACT_WARN_RATIO && !state.autoCompactPending) {
             state.autoCompactPending = true;
             notification.add(
                 _t(
-                    "Context window at %s%%. Type /compact to free room " +
-                    "before continuing.",
+                    'Context window at %s%%. Type /compact to free room ' +
+                        'before continuing.',
                     Math.round(ratio * 100),
                 ),
                 { type: 'warning' },
@@ -1089,7 +1335,7 @@ export function useAiSession(options = {}) {
                 ['id', 'name', 'description', 'suggestions'],
                 { order: 'sequence, name' },
             );
-        } catch (_error) {
+        } catch {
             state.agents = [];
         }
     }
@@ -1104,10 +1350,9 @@ export function useAiSession(options = {}) {
             state.agentId = agentId || null;
             state.agentName = agentName;
         } catch (error) {
-            notification.add(
-                _t('Failed to change agent: %s', formatError(error)),
-                { type: 'danger' },
-            );
+            notification.add(_t('Failed to change agent: %s', formatError(error)), {
+                type: 'danger',
+            });
         }
     }
     async function onSetAgent(agentId) {
@@ -1122,11 +1367,12 @@ export function useAiSession(options = {}) {
             return;
         }
         try {
-            await orm.call(
-                'muk_ai.session', 'discard_attachments',
-                [state.sessionId, [attachmentId]],
-            );
-        } catch (_error) {
+            await orm.call('muk_ai.session', 'discard_attachments', [
+                state.sessionId,
+                [attachmentId],
+            ]);
+        } catch {
+            /* ignore */
         }
     }
     function toggleToolBlock(callId) {
@@ -1157,15 +1403,34 @@ export function useAiSession(options = {}) {
         }
         const lines = text
             .split(/\n+/)
-            .map((l) => l.trim().replace(/^[#*\->\s]+/, '').replace(/[*]+$/, ''))
+            .map((l) =>
+                l
+                    .trim()
+                    .replace(/^[#*\->\s]+/, '')
+                    .replace(/[*]+$/, ''),
+            )
             .filter((l) => l.length > 0);
         if (!lines.length) {
             return '';
         }
         return lines[lines.length - 1];
     }
+    const markdownCache = new Map();
     function renderMarkdown(text) {
-        return markup(renderMarkdownToHtml(text));
+        if (typeof text !== 'string') {
+            return markup(renderMarkdownToHtml(text));
+        }
+        let cached = markdownCache.get(text);
+        if (cached === undefined) {
+            cached = markup(renderMarkdownToHtml(text));
+        } else {
+            markdownCache.delete(text);
+        }
+        markdownCache.set(text, cached);
+        if (markdownCache.size > 400) {
+            markdownCache.delete(markdownCache.keys().next().value);
+        }
+        return cached;
     }
     function copyText(text) {
         if (!text || !navigator.clipboard) {
@@ -1179,14 +1444,14 @@ export function useAiSession(options = {}) {
     function setScrollCallback(callback) {
         onScrollCallback = callback;
     }
-    function requestScroll() {
+    function requestScroll(force = false) {
         if (onScrollCallback) {
-            onScrollCallback();
+            onScrollCallback(force);
         }
     }
     onWillUnmount(() => {
         sessionNotification.markInactive(state.sessionId);
-        disconnectBus();
+        bus.unsubscribe('muk_ai.event', busHandler);
         clearStreamIdleTimer();
     });
     return {
@@ -1229,5 +1494,6 @@ export function useAiSession(options = {}) {
         runStopCompact,
         runUndoToEvent,
         runForkAtEvent,
+        openHandoverPicker,
     };
 }

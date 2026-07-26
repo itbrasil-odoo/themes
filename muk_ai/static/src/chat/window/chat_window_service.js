@@ -7,13 +7,13 @@ import { seedSessionContext } from '@muk_ai/views/context';
 let prismPromise = null;
 function ensurePrism() {
     if (!prismPromise) {
-        prismPromise = loadBundle('html_editor.assets_prism').catch(() => {});
+        prismPromise = loadBundle('muk_ai.assets_prism').catch(() => {});
     }
     return prismPromise;
 }
 
 export const chatWindowService = {
-    dependencies: ['action', 'orm'],
+    dependencies: ['action', 'bus_service', 'orm'],
     start(env) {
         const state = reactive({
             windows: [],
@@ -35,6 +35,11 @@ export const chatWindowService = {
             const idx = state.windows.findIndex((w) => w.sessionId === sessionId);
             if (idx >= 0) state.windows.splice(idx, 1);
         }
+        env.services.bus_service.subscribe('muk_ai.session_state', (payload) => {
+            if (payload && payload.deleted && payload.session_id) {
+                close(payload.session_id);
+            }
+        });
         function toggleMinimized(sessionId) {
             const entry = find(sessionId);
             if (entry) entry.minimized = !entry.minimized;
@@ -47,9 +52,20 @@ export const chatWindowService = {
             }
             return state.windows[0]?.sessionId || null;
         }
+        function sessionIds() {
+            return state.windows.map((w) => w.sessionId);
+        }
         return {
-            state, open, close, toggleMinimized,
-            get activeSessionId() { return activeSessionId(); },
+            state,
+            open,
+            close,
+            toggleMinimized,
+            get activeSessionId() {
+                return activeSessionId();
+            },
+            get sessionIds() {
+                return sessionIds();
+            },
         };
     },
 };

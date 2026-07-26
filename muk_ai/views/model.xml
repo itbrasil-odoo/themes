@@ -37,9 +37,11 @@
 				<field name="name"/>
 				<field name="technical_name"/>
 				<field name="context_window"/>
+				<field name="reasoning_effort_default" optional="hide"/>
 				<field name="input_rate"/>
 				<field name="output_rate"/>
-				<field name="cached_rate"/>
+				<field name="cache_read_rate"/>
+				<field name="cache_write_rate"/>
 				<field name="currency"/>
 				<field name="active" widget="boolean_toggle"/>
 			</list>
@@ -69,11 +71,19 @@
 							<field name="provider_id"/>
 							<field name="technical_name"/>
 							<field name="context_window"/>
+							<field name="reasoning_efforts" invisible="1"/>
+							<field
+                                name="reasoning_effort_default"
+                                widget="effort_picker"
+                                options="{'options_field': 'reasoning_efforts'}"
+                                invisible="not reasoning_efforts"
+                            />
 						</group>
 						<group string="Pricing">
 							<field name="input_rate"/>
 							<field name="output_rate"/>
-							<field name="cached_rate"/>
+							<field name="cache_read_rate"/>
+							<field name="cache_write_rate"/>
 							<field name="currency"/>
 						</group>
 					</group>

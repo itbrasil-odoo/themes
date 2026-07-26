@@ -16,7 +16,6 @@ describe.current.tags('muk_ai');
 defineMailModels();
 patchTranslations();
 
-
 class FakeTab extends Component {
     static template = xml`
         <div class="mk_fake_tab">
@@ -32,15 +31,17 @@ class FakeTab extends Component {
     };
 }
 
-
 afterEach(() => {
     for (const id of ['fake', 'fake2']) {
         if (ARTIFACT_TYPES.contains(id)) {
-            try { ARTIFACT_TYPES.remove(id); } catch (_e) {}
+            try {
+                ARTIFACT_TYPES.remove(id);
+            } catch {
+                /* ignore */
+            }
         }
     }
 });
-
 
 function mountPanel(sessionLike) {
     class Parent extends Component {
@@ -57,16 +58,19 @@ function mountPanel(sessionLike) {
     return mountWithCleanup(Parent, { props: { session: sessionLike } });
 }
 
-
 test('a registered artifact type contributes a tab next to attachments', async () => {
-    ARTIFACT_TYPES.add('fake', {
-        id: 'fake',
-        label: 'Fake',
-        icon: 'fa-flask',
-        sequence: 50,
-        component: FakeTab,
-        collect: () => [{ a: 1 }, { b: 2 }],
-    }, { force: true });
+    ARTIFACT_TYPES.add(
+        'fake',
+        {
+            id: 'fake',
+            label: 'Fake',
+            icon: 'fa-flask',
+            sequence: 50,
+            component: FakeTab,
+            collect: () => [{ a: 1 }, { b: 2 }],
+        },
+        { force: true },
+    );
     const session = {
         state: {
             pendingAttachments: [{ id: 1, filename: 'a.png', mimetype: 'image/png' }],
@@ -81,16 +85,19 @@ test('a registered artifact type contributes a tab next to attachments', async (
     expect(labels.some((l) => l.includes('Attachments'))).toBe(true);
 });
 
-
 test('initial active tab is the lowest-sequence registered type', async () => {
-    ARTIFACT_TYPES.add('fake2', {
-        id: 'fake2',
-        label: 'Fake2',
-        icon: 'fa-flask',
-        sequence: 50,
-        component: FakeTab,
-        collect: () => [{ a: 1 }, { b: 2 }],
-    }, { force: true });
+    ARTIFACT_TYPES.add(
+        'fake2',
+        {
+            id: 'fake2',
+            label: 'Fake2',
+            icon: 'fa-flask',
+            sequence: 50,
+            component: FakeTab,
+            collect: () => [{ a: 1 }, { b: 2 }],
+        },
+        { force: true },
+    );
     const session = {
         state: {
             pendingAttachments: [{ id: 1, filename: 'a.png', mimetype: 'image/png' }],
@@ -106,7 +113,6 @@ test('initial active tab is the lowest-sequence registered type', async () => {
     expect(fakeBtn.classList.contains('active')).toBe(false);
 });
 
-
 test('only a single non-empty type → no tab strip', async () => {
     const session = {
         state: {
@@ -117,4 +123,38 @@ test('only a single non-empty type → no tab strip', async () => {
     await mountPanel(session);
     await animationFrame();
     expect(queryFirst('.mk_artifacts_panel .mk_artifacts_tabs')).toBe(null);
+});
+
+test('assistant inline images (persisted /web/image markdown) appear as attachments', () => {
+    const collect = ARTIFACT_TYPES.get('attachments').collect;
+    const items = collect({
+        pendingAttachments: [],
+        events: [
+            { kind: 'user_message', content: 'generate an image', attachments: [] },
+            {
+                kind: 'text',
+                content:
+                    'Here you go ![rocket logo](/web/image/1032) _(attachment 1032 — to set on a record use `image_1920="@attachment:1032"`)_',
+            },
+        ],
+    });
+    expect(items.length).toBe(1);
+    expect(items[0].id).toBe(1032);
+    expect(items[0].filename).toBe('rocket logo');
+    expect(items[0].mimetype).toBe('image/png');
+});
+
+test('assistant inline images dedupe against repeated references', () => {
+    const collect = ARTIFACT_TYPES.get('attachments').collect;
+    const items = collect({
+        pendingAttachments: [],
+        events: [
+            {
+                kind: 'text',
+                content: '![a](/web/image/7) and again ![a](/web/image/7)',
+            },
+            { kind: 'text', content: '![b](/web/image/8)' },
+        ],
+    });
+    expect(items.map((i) => i.id)).toEqual([7, 8]);
 });

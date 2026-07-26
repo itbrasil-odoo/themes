@@ -5,6 +5,7 @@ import { FormController } from '@web/views/form/form_controller';
 
 import { captureViewContext } from '@muk_ai/views/context';
 
+/** Capture the open record/list as AI view context for active chat windows. */
 patch(FormController.prototype, {
     setup() {
         super.setup(...arguments);
@@ -15,8 +16,8 @@ patch(FormController.prototype, {
         let lastKey = null;
         const dispatch = () => {
             try {
-                const sessionId = chatWindow.activeSessionId;
-                if (!sessionId) {
+                const sessionIds = chatWindow.sessionIds || [];
+                if (!sessionIds.length) {
                     lastKey = null;
                     return;
                 }
@@ -41,13 +42,15 @@ patch(FormController.prototype, {
                         view_type: 'form',
                     };
                 }
-                const key = `${sessionId}:${JSON.stringify(payload)}`;
+                const key = `${sessionIds.join(',')}:${JSON.stringify(payload)}`;
                 if (key === lastKey) {
                     return;
                 }
                 lastKey = key;
                 captureViewContext(this.env, payload);
-            } catch (_e) {}
+            } catch {
+                /* ignore */
+            }
         };
         onMounted(dispatch);
         onPatched(dispatch);

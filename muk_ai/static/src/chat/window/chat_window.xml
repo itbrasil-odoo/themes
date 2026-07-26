@@ -4,17 +4,14 @@
     <t t-name="muk_ai.ChatWindow">
         <div class="mk_window mk_chat" t-att-class="props.minimized ? 'mk_window_min' : ''" t-ref="root">
             <button class="mk_window_header" t-on-click="() => props.onToggleMinimized()">
-                <span class="mk_avatar rounded-circle">
-                    <i class="fa fa-comment-o"/>
+                <span
+                    class="mk_avatar rounded-circle"
+                    t-att-class="statusBadgeClass(session.state.status)"
+                    t-att-title="(session.state.agentName ? session.state.agentName + ' · ' : '') + statusLabel(session.state.status)"
+                >
+                    <i class="fa" t-att-class="statusIcon(session.state.status)"/>
                 </span>
                 <span class="mk_window_title" t-esc="session.state.name || 'MuK AI'"/>
-                <span t-if="session.state.agentName" class="mk_window_agent small opacity-75 text-truncate" t-esc="session.state.agentName"/>
-                <span
-                    t-if="!session.state.loading"
-                    class="mk_status_pill rounded-pill"
-                    t-att-class="statusBadgeClass(session.state.status)"
-                    t-att-title="statusLabel(session.state.status)"
-                />
                 <span
                     t-if="session.state.status === 'waiting_schedule' and session.state.resumeAt"
                     class="mk_chat_header_resume small ms-1 opacity-75"
@@ -113,7 +110,7 @@
                             </div>
                         </t>
                         <t t-else="">
-                            <t t-foreach="renderedTurns" t-as="turn" t-key="turn_index + '-' + (turn.at || '')">
+                            <t t-foreach="renderedTurns" t-as="turn" t-key="turn.clientKey || (turn.eventId ? 'e' + turn.eventId : turn_index + '-' + (turn.at || ''))">
                                 <t t-call="muk_ai.ChatTurn">
                                     <t t-set="turn" t-value="turn"/>
                                 </t>
@@ -122,8 +119,8 @@
                                 <div class="mk_turn mk_turn_assistant">
                                     <t t-foreach="session.state.streamingTools" t-as="tool" t-key="tool.callId">
                                         <ToolCard
-                                            block="{ name: tool.name, arguments: tool.argsBuffer, callId: tool.callId, result: null }"
-                                            streaming="true"
+                                            block="{ name: tool.name, arguments: tool.argsBuffer, callId: tool.callId, result: tool.done ? tool.result : null }"
+                                            streaming="!tool.done"
                                         />
                                     </t>
                                     <div
@@ -159,9 +156,18 @@
                                 </div>
                             </t>
                             <t t-if="session.state.error">
-                                <div class="alert alert-danger rounded-3 mt-2 small">
-                                    <strong><i class="fa fa-exclamation-circle me-1"/>Error:</strong>
-                                    <span t-esc="session.state.error"/>
+                                <div class="alert alert-danger rounded-3 mt-2 small d-flex flex-column align-items-stretch gap-2">
+                                    <div class="text-break">
+                                        <strong><i class="fa fa-exclamation-circle me-1"/>Error:</strong>
+                                        <span t-esc="session.state.error"/>
+                                    </div>
+                                    <button t-if="session.canRegenerate and session.canRegenerate()"
+                                            class="btn btn-sm btn-outline-danger flex-shrink-0 align-self-end"
+                                            type="button"
+                                            title="Regenerate this answer"
+                                            t-on-click="() => session.onRegenerate()">
+                                        <i class="fa fa-refresh me-1"/>Regenerate
+                                    </button>
                                 </div>
                             </t>
                         </t>
@@ -178,6 +184,8 @@
                         canAttach="canAttach"
                         isQueueing="isQueueing"
                         attachments="session.state.pendingAttachments"
+                        agents="session.state.agents"
+                        activeAgentId="session.state.agentId"
                         focusToken="session.state.focusToken"
                         onInput.bind="onInputChange"
                         onSend.bind="onSend"
@@ -185,6 +193,7 @@
                         onAttachFiles.bind="onAttachFiles"
                         onRemoveAttachment.bind="onRemoveAttachment"
                         onOpenAttachment.bind="onOpenAttachment"
+                        onSelectAgent="(agentId) => session.onSetAgent(agentId)"
                     />
                 </div>
             </t>

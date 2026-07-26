@@ -1,7 +1,7 @@
 {
     'name': 'MuK AI Assistant',
-    'summary': 'Native agentic AI agent and chat runtime for Odoo',
-    'description': '''
+    'summary': 'Native agentic AI (ChatGPT, Claude, Gemini) agent and chat',
+    'description': """
         A complete agentic AI assistant inside Odoo. Ships a native OWL
         chat client (with floating window and systray), a session-based
         agent runtime, and three first-class LLM providers (OpenAI
@@ -9,8 +9,8 @@
         and reasoning streaming. Talks to your data through the same
         muk_mcp tool registry your external AI clients use — one source
         of truth, one permission model, one audit trail.
-    ''',
-    'version': '18.0.1.6.11',
+    """,
+    'version': '18.0.1.12.14',
     'category': 'Productivity',
     'license': 'LGPL-3',
     'author': 'MuK IT',
@@ -42,6 +42,7 @@
         'views/mcp_tool_log.xml',
         'views/session.xml',
         'views/chat.xml',
+        'views/res_users.xml',
         'views/res_config_settings.xml',
         'views/menu.xml',
     ],
@@ -55,19 +56,28 @@
             'muk_ai/static/src/chat/**/*',
             'muk_ai/static/src/components/**/*',
             'muk_ai/static/src/core/**/*',
+            'muk_ai/static/src/views/adjust.js',
             'muk_ai/static/src/views/context.js',
             'muk_ai/static/src/views/fields/**/*',
             'muk_ai/static/src/views/form/**/*',
             'muk_ai/static/src/views/kanban/**/*',
             'muk_ai/static/src/views/list/**/*',
             'muk_ai/static/src/webclient/**/*',
+            ('remove', 'muk_ai/static/src/**/*.dark.scss'),
         ],
         'web.assets_backend_lazy': [
             'muk_ai/static/src/views/graph/**/*',
             'muk_ai/static/src/views/pivot/**/*',
         ],
+        'web.assets_web_dark': [
+            'muk_ai/static/src/**/*.dark.scss',
+        ],
         'web.assets_unit_tests': [
             'muk_ai/static/tests/**/*.test.js',
+        ],
+        'muk_ai.assets_prism': [
+            'web/static/lib/prismjs/prism.js',
+            'web/static/lib/prismjs/themes/default.css',
         ],
     },
     'images': [

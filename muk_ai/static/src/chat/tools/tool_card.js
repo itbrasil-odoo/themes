@@ -22,6 +22,7 @@ function truncatePrompt(value) {
     return text.slice(0, PROMPT_PREVIEW_MAX) + '…';
 }
 
+/** Collapsible card for a single tool call: name, arguments, and result. */
 export class ToolCard extends Component {
     static template = 'muk_ai.ToolCard';
     static props = {
@@ -43,7 +44,7 @@ export class ToolCard extends Component {
         }
         try {
             return JSON.stringify(args, null, 2);
-        } catch (_err) {
+        } catch {
             return String(args);
         }
     }
@@ -54,13 +55,13 @@ export class ToolCard extends Component {
         if (typeof result === 'string') {
             try {
                 return JSON.stringify(JSON.parse(result), null, 2);
-            } catch (_err) {
+            } catch {
                 return result;
             }
         }
         try {
             return JSON.stringify(result, null, 2);
-        } catch (_err) {
+        } catch {
             return String(result);
         }
     }
@@ -76,7 +77,7 @@ export class ToolCard extends Component {
             return 'json';
         }
         const trimmed = raw.trimStart();
-        if (/^(---\s|\+\+\+\s|@@\s)/.test(trimmed) || /^[\+\-]{3,}\n/.test(trimmed)) {
+        if (/^(---\s|\+\+\+\s|@@\s)/.test(trimmed) || /^[+-]{3,}\n/.test(trimmed)) {
             return 'diff';
         }
         return 'json';
@@ -89,7 +90,7 @@ export class ToolCard extends Component {
         }
         try {
             return markup(Prism.highlight(text, grammar, lang));
-        } catch (_err) {
+        } catch {
             return null;
         }
     }
@@ -109,7 +110,7 @@ export class ToolCard extends Component {
         if (typeof raw === 'string') {
             try {
                 return JSON.parse(raw) || {};
-            } catch (_err) {
+            } catch {
                 return {};
             }
         }
@@ -123,7 +124,7 @@ export class ToolCard extends Component {
         if (typeof raw === 'string') {
             try {
                 return JSON.parse(raw);
-            } catch (_err) {
+            } catch {
                 return null;
             }
         }
@@ -204,18 +205,22 @@ export class ToolCard extends Component {
         const result = this.props.block.result;
         const hasError = (value) => {
             if (!value) return false;
-            if (typeof value === 'object') return Boolean(value.error || value.ok === false);
+            if (typeof value === 'object')
+                return Boolean(value.error || value.ok === false);
             if (typeof value === 'string') {
                 try {
                     const parsed = JSON.parse(value);
                     return Boolean(parsed.error || parsed.ok === false);
-                } catch (_e) { return false; }
+                } catch {
+                    return false;
+                }
             }
             return false;
         };
         if (hasError(result)) return 'error';
         if (SCHEDULE_TOOL_NAMES.has(name)) return 'schedule';
-        if (/^(create|update|delete|unlink|archive|call_method|write_)/.test(name)) return 'write';
+        if (/^(create|update|delete|unlink|archive|call_method|write_)/.test(name))
+            return 'write';
         if (/^(open_|show_notification)/.test(name)) return 'nav';
         if (/^(search|read|get_|list_|fields_|count_)/.test(name)) return 'read';
         return 'default';

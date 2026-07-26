@@ -1,4 +1,12 @@
-import { Component, onMounted, onWillStart, onWillUnmount, useEffect, useRef, useState } from '@odoo/owl';
+import {
+    Component,
+    onMounted,
+    onWillStart,
+    onWillUnmount,
+    useEffect,
+    useRef,
+    useState,
+} from '@odoo/owl';
 
 import { _t } from '@web/core/l10n/translation';
 import { useDropzone } from '@web/core/dropzone/dropzone_hook';
@@ -7,6 +15,7 @@ import { useService } from '@web/core/utils/hooks';
 
 import { toFileModel } from '@muk_ai/core/attachment/attachment';
 import { AttachmentCard } from '@muk_ai/core/attachment/attachment_card';
+import { SourceIcon, SourceList } from '@muk_ai/chat/artifacts/types/sources_tab';
 import {
     approvalPill,
     costTooltip,
@@ -15,6 +24,7 @@ import {
     formatTimestamp,
     inputPlaceholder,
     statusBadgeClass,
+    statusIcon,
     statusLabel,
 } from '@muk_ai/chat/utils';
 
@@ -26,6 +36,7 @@ import {
     useChatScrollAnchor,
 } from '@muk_ai/chat/session/use_scroll_anchor';
 import { ToolCard } from '@muk_ai/chat/tools/tool_card';
+import { ToolGroup, buildTurnItems } from '@muk_ai/chat/tools/tool_group';
 import {
     askArgsText,
     askViewMode,
@@ -36,9 +47,17 @@ import {
     viewContextTooltip,
 } from '@muk_ai/chat/session/view_context_format';
 
+/** Floating chat window hosting one AI session with composer and turns. */
 export class ChatWindow extends Component {
     static template = 'muk_ai.ChatWindow';
-    static components = { ChatComposer, ToolCard, AttachmentCard };
+    static components = {
+        ChatComposer,
+        ToolCard,
+        ToolGroup,
+        AttachmentCard,
+        SourceIcon,
+        SourceList,
+    };
     static props = {
         sessionId: { type: Number },
         minimized: { type: Boolean, optional: true },
@@ -53,20 +72,28 @@ export class ChatWindow extends Component {
             onForked: (newId) => {
                 this.chatWindow.open(newId);
             },
+            onHandedOver: () => this.props.onClose(),
         });
         this.fileViewer = useFileViewer();
         this.rootRef = useRef('root');
-        const { scrollRef, scrollToBottom, state: scrollState } = useChatScrollAnchor('scroll');
+        const {
+            scrollRef,
+            scrollToBottom,
+            state: scrollState,
+        } = useChatScrollAnchor('scroll');
         this.scrollRef = scrollRef;
         this.scrollToBottom = scrollToBottom;
         this.scrollState = scrollState;
         this.session.setScrollCallback(scrollToBottom);
-        this.windowState = useState({ askViews: {}, resumeTick: 0 });
+        this.windowState = useState({
+            askViews: {},
+            resumeTick: 0,
+            sourcesExpanded: {},
+        });
         this._resumeTickInterval = null;
-        onScrollUpNearTop(scrollRef, () => preserveAnchor(
-            scrollRef,
-            () => this.session.loadMoreEvents(),
-        ));
+        onScrollUpNearTop(scrollRef, () =>
+            preserveAnchor(scrollRef, () => this.session.loadMoreEvents()),
+        );
         useDropzone(
             this.rootRef,
             (event) => {
@@ -86,12 +113,19 @@ export class ChatWindow extends Component {
             },
             () => [this.props.minimized],
         );
-        onWillStart(() => this.session.load(this.props.sessionId));
+        onWillStart(() =>
+            Promise.all([
+                this.session.load(this.props.sessionId),
+                this.session.loadAgents(),
+            ]),
+        );
         onMounted(() => {
             this._installRootPasteHandler();
             this._resumeTickInterval = window.setInterval(() => {
-                if (this.session.state.status === 'waiting_schedule'
-                        && this.session.state.resumeAt) {
+                if (
+                    this.session.state.status === 'waiting_schedule' &&
+                    this.session.state.resumeAt
+                ) {
                     this.windowState.resumeTick += 1;
                 }
             }, 5000);
@@ -136,6 +170,19 @@ export class ChatWindow extends Component {
         const file = toFileModel(attachment);
         this.fileViewer.open(file);
     }
+    turnSourcesKey(turn, index) {
+        return turn.eventId ? `e${turn.eventId}` : `t${index}`;
+    }
+    isTurnSourcesExpanded(turn, index) {
+        return !!this.windowState.sourcesExpanded[this.turnSourcesKey(turn, index)];
+    }
+    toggleTurnSources(turn, index) {
+        const key = this.turnSourcesKey(turn, index);
+        this.windowState.sourcesExpanded = {
+            ...this.windowState.sourcesExpanded,
+            [key]: !this.windowState.sourcesExpanded[key],
+        };
+    }
     get renderedTurns() {
         return this.session.renderedTurns();
     }
@@ -162,9 +209,7 @@ export class ChatWindow extends Component {
         if (pending && pending.call_id === block.callId) {
             return true;
         }
-        return turn.blocks.some(
-            (b) => b.type === 'ask' && b.callId === block.callId,
-        );
+        return turn.blocks.some((b) => b.type === 'ask' && b.callId === block.callId);
     }
     isToolStreaming(block) {
         if (block.result !== null && block.result !== undefined) {
@@ -175,6 +220,14 @@ export class ChatWindow extends Component {
     }
     toggleToolBlock(callId) {
         this.session.toggleToolBlock(callId);
+    }
+    turnItems(turn) {
+        return buildTurnItems(turn.blocks, (block) =>
+            this.isToolHiddenForAsk(block, turn),
+        );
+    }
+    get isCompact() {
+        return true;
     }
     get canSend() {
         return this.session.canSend();
@@ -196,6 +249,9 @@ export class ChatWindow extends Component {
     }
     statusBadgeClass(status) {
         return statusBadgeClass(status);
+    }
+    statusIcon(status) {
+        return statusIcon(status);
     }
     statusLabel(status) {
         return statusLabel(status);

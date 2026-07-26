@@ -1,48 +1,60 @@
-import json
+from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
-from odoo.addons.muk_ai.tests.common import AITestCommon
+from odoo.addons.muk_ai.tests.common import AITestCommon, ToolCatalogMixin
 
 
-class TestToolLazy(AITestCommon):
+class TestToolLazy(ToolCatalogMixin, AITestCommon):
+    """Verify lazy tool-schema loading and on-demand tool execution."""
 
     # ----------------------------------------------------------
     # Setup
     # ----------------------------------------------------------
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         super().setUpClass()
         cls.session = cls.env['muk_ai.session'].create({'name': 'Lazy session'})
-        cls.fake_catalog = [
-            {'name': 'list_models', 'description': 'List installed models', 'inputSchema': {'type': 'object'}},
-            {'name': 'search_count', 'description': 'Search records', 'inputSchema': {'type': 'object'}},
-            {'name': 'read_records', 'description': 'Read records', 'inputSchema': {'type': 'object'}},
-            {'name': 'rare_tool', 'description': 'Rarely used', 'inputSchema': {'type': 'object', 'properties': {'x': {'type': 'string'}}}},
-            {'name': 'another_rare', 'description': 'Also rare', 'inputSchema': {'type': 'object'}},
+        cls.catalog = [
+            {
+                'name': 'list_models',
+                'description': 'List installed models',
+                'inputSchema': {'type': 'object'},
+            },
+            {
+                'name': 'search_count',
+                'description': 'Search records',
+                'inputSchema': {'type': 'object'},
+            },
+            {
+                'name': 'read_records',
+                'description': 'Read records',
+                'inputSchema': {'type': 'object'},
+            },
+            {
+                'name': 'rare_tool',
+                'description': 'Rarely used',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {'x': {'type': 'string'}},
+                },
+            },
+            {
+                'name': 'another_rare',
+                'description': 'Also rare',
+                'inputSchema': {'type': 'object'},
+            },
         ]
-
-    # ----------------------------------------------------------
-    # Helper
-    # ----------------------------------------------------------
-
-    def _patch_catalog(self):
-        return patch.object(
-            type(self.env['muk_mcp.tool']),
-            'get_tools',
-            autospec=True,
-            return_value=list(self.fake_catalog),
-        )
 
     # ----------------------------------------------------------
     # Tests: tool index in system prompt
     # ----------------------------------------------------------
 
-    def test_initial_inputs_include_tool_index_in_system_message(self):
+    def test_system_message_includes_tool_index(self):
         with self._patch_catalog():
-            inputs = self.session._build_initial_inputs(user_message='hi')
-        system_text = inputs[0]['content'][0]['text']
+            system_text = self.session._system_message()['content'][0]['text']
         self.assertIn('<available_tools>', system_text)
         self.assertIn('</available_tools>', system_text)
         for name in ('rare_tool', 'another_rare'):
@@ -80,7 +92,13 @@ class TestToolLazy(AITestCommon):
         self.assertNotIn('another_rare', names)
 
     def test_essentials_silently_dropped_if_not_in_catalog(self):
-        smaller = [{'name': 'list_models', 'description': '', 'inputSchema': {'type': 'object'}}]
+        smaller = [
+            {
+                'name': 'list_models',
+                'description': '',
+                'inputSchema': {'type': 'object'},
+            }
+        ]
         with patch.object(
             type(self.env['muk_mcp.tool']),
             'get_tools',
@@ -106,7 +124,9 @@ class TestToolLazy(AITestCommon):
     def test_tool_load_known_name_loads_and_persists(self):
         with self._patch_catalog():
             result, ok = self.session._dispatch_tool_call(
-                'tool_load', {'names': ['rare_tool']}, 'call_1',
+                'tool_load',
+                {'names': ['rare_tool']},
+                'call_1',
             )
         self.assertTrue(ok)
         self.assertIn('rare_tool', result['loaded'])
@@ -117,22 +137,150 @@ class TestToolLazy(AITestCommon):
     def test_tool_load_unknown_name_returned_in_unknown(self):
         with self._patch_catalog():
             result, ok = self.session._dispatch_tool_call(
-                'tool_load', {'names': ['no_such_tool']}, 'call_2',
+                'tool_load',
+                {'names': ['no_such_tool']},
+                'call_2',
             )
-        self.assertTrue(ok)
+        self.assertFalse(ok)
+        self.assertIn('error', result)
         self.assertEqual(result['loaded'], {})
         self.assertEqual(result['unknown'], ['no_such_tool'])
         self.assertNotIn('no_such_tool', list(self.session.expanded_tool_names or []))
 
+    def test_tool_load_partial_resolution_is_not_an_error(self):
+        with self._patch_catalog():
+            result, ok = self.session._dispatch_tool_call(
+                'tool_load',
+                {'names': ['rare_tool', 'no_such_tool']},
+                'call_partial',
+            )
+        self.assertTrue(ok)
+        self.assertNotIn('error', result)
+        self.assertIn('rare_tool', result['loaded'])
+        self.assertEqual(result['unknown'], ['no_such_tool'])
+
+    def test_tool_load_strips_namespace_prefix(self):
+        with self._patch_catalog():
+            result, ok = self.session._dispatch_tool_call(
+                'tool_load',
+                {'names': ['functions.rare_tool']},
+                'call_ns',
+            )
+        self.assertTrue(ok)
+        self.assertNotIn('error', result)
+        self.assertIn('rare_tool', result['loaded'])
+        self.assertEqual(result['unknown'], [])
+        self.assertIn('rare_tool', list(self.session.expanded_tool_names or []))
+
+    def test_tool_load_exact_match_wins_over_prefix_fallback(self):
+        dotted = [
+            {
+                'name': 'server.rare_tool',
+                'description': 'Namespaced tool',
+                'inputSchema': {'type': 'object'},
+            },
+            {
+                'name': 'rare_tool',
+                'description': 'Bare tool',
+                'inputSchema': {'type': 'object'},
+            },
+        ]
+        session = self.env['muk_ai.session'].create({'name': 'Dotted catalog'})
+        with patch.object(
+            type(self.env['muk_mcp.tool']),
+            'get_tools',
+            autospec=True,
+            return_value=dotted,
+        ):
+            result, _ok = session._dispatch_tool_call(
+                'tool_load',
+                {'names': ['server.rare_tool']},
+                'call_dotted',
+            )
+        self.assertIn('server.rare_tool', result['loaded'])
+        self.assertNotIn('rare_tool', result['loaded'])
+
+    def test_tool_load_namespaced_inline_call_executes(self):
+        with (
+            self._patch_catalog(),
+            patch.object(
+                type(self.session),
+                '_dispatch_tool_call',
+                autospec=True,
+                return_value=('called', True),
+            ) as dispatch,
+        ):
+            result = self.session._dispatch_tool_load(
+                {
+                    'names': ['functions.rare_tool'],
+                    'call': {'name': 'functions.rare_tool', 'arguments': {'x': '1'}},
+                },
+                parent_call_id='call_ns_inline',
+            )
+        self.assertNotIn('error', result['call'])
+        self.assertEqual(result['call']['name'], 'rare_tool')
+        self.assertTrue(result['call']['ok'])
+        self.assertEqual(dispatch.call_args[0][1], 'rare_tool')
+
+    def test_tool_load_inline_call_accepts_flat_arguments(self):
+        with (
+            self._patch_catalog(),
+            patch.object(
+                type(self.session),
+                '_dispatch_tool_call',
+                autospec=True,
+                return_value=('called', True),
+            ) as dispatch,
+        ):
+            result = self.session._dispatch_tool_load(
+                {
+                    'names': ['rare_tool'],
+                    'call': {'name': 'rare_tool', 'x': '1'},
+                },
+                parent_call_id='call_flat',
+            )
+        self.assertTrue(result['call']['ok'])
+        self.assertEqual(dispatch.call_args[0][2], {'x': '1'})
+
+    def test_tool_load_inline_call_refuses_filtered_tool(self):
+        agent = self.env['muk_ai.agent'].create(
+            {
+                'name': 'Filtered inline call',
+                'tool_filter': ['another_rare'],
+                'approval_mode': 'off',
+            }
+        )
+        session = self.env['muk_ai.session'].create(
+            {
+                'name': 'Filtered inline call',
+                'agent_id': agent.id,
+            }
+        )
+        with self._patch_catalog():
+            result = session._dispatch_tool_load(
+                {
+                    'names': ['another_rare'],
+                    'call': {'name': 'read_records', 'arguments': {}},
+                },
+                parent_call_id='call_bypass',
+            )
+        self.assertIn('another_rare', result['loaded'])
+        self.assertIn('error', result['call'])
+        self.assertNotIn('output', result['call'])
+
     def test_tool_load_empty_names_errors(self):
         result, _ok = self.session._dispatch_tool_call(
-            'tool_load', {'names': []}, 'call_3',
+            'tool_load',
+            {'names': []},
+            'call_3',
         )
         self.assertIn('error', result)
 
     def test_tool_load_missing_names_errors(self):
         result, _ok = self.session._dispatch_tool_call(
-            'tool_load', {}, 'call_4',
+            'tool_load',
+            {},
+            'call_4',
         )
         self.assertIn('error', result)
 
@@ -140,7 +288,9 @@ class TestToolLazy(AITestCommon):
         self.session.expanded_tool_names = ['rare_tool']
         with self._patch_catalog():
             self.session._dispatch_tool_call(
-                'tool_load', {'names': ['rare_tool', 'another_rare']}, 'call_5',
+                'tool_load',
+                {'names': ['rare_tool', 'another_rare']},
+                'call_5',
             )
         loaded = list(self.session.expanded_tool_names or [])
         self.assertEqual(loaded.count('rare_tool'), 1)
@@ -149,7 +299,9 @@ class TestToolLazy(AITestCommon):
     def test_loaded_tool_appears_in_subsequent_schema(self):
         with self._patch_catalog():
             self.session._dispatch_tool_call(
-                'tool_load', {'names': ['rare_tool']}, 'call_6',
+                'tool_load',
+                {'names': ['rare_tool']},
+                'call_6',
             )
             schema = self.session._get_tool_schema()
         names = {entry['name'] for entry in schema}
@@ -160,14 +312,18 @@ class TestToolLazy(AITestCommon):
     # ----------------------------------------------------------
 
     def test_agent_custom_essentials_used(self):
-        agent = self.env['muk_ai.agent'].create({
-            'name': 'Custom essentials',
-            'essential_tool_names': ['rare_tool', 'another_rare'],
-        })
-        session = self.env['muk_ai.session'].create({
-            'name': 'Custom session',
-            'agent_id': agent.id,
-        })
+        agent = self.env['muk_ai.agent'].create(
+            {
+                'name': 'Custom essentials',
+                'essential_tool_names': ['rare_tool', 'another_rare'],
+            }
+        )
+        session = self.env['muk_ai.session'].create(
+            {
+                'name': 'Custom session',
+                'agent_id': agent.id,
+            }
+        )
         with self._patch_catalog():
             schema = session._get_tool_schema()
         names = {entry['name'] for entry in schema}
@@ -177,15 +333,19 @@ class TestToolLazy(AITestCommon):
         self.assertNotIn('list_models', names)
 
     def test_agent_essentials_intersect_filter(self):
-        agent = self.env['muk_ai.agent'].create({
-            'name': 'Filtered agent',
-            'essential_tool_names': ['list_models', 'rare_tool'],
-            'tool_filter': ['list_models'],
-        })
-        session = self.env['muk_ai.session'].create({
-            'name': 'Filtered session',
-            'agent_id': agent.id,
-        })
+        agent = self.env['muk_ai.agent'].create(
+            {
+                'name': 'Filtered agent',
+                'essential_tool_names': ['list_models', 'rare_tool'],
+                'tool_filter': ['list_models'],
+            }
+        )
+        session = self.env['muk_ai.session'].create(
+            {
+                'name': 'Filtered session',
+                'agent_id': agent.id,
+            }
+        )
         with self._patch_catalog():
             schema = session._get_tool_schema()
         names = {entry['name'] for entry in schema}
@@ -193,17 +353,23 @@ class TestToolLazy(AITestCommon):
         self.assertNotIn('rare_tool', names)
 
     def test_tool_load_respects_filter(self):
-        agent = self.env['muk_ai.agent'].create({
-            'name': 'Filtered for load',
-            'tool_filter': ['list_models'],
-        })
-        session = self.env['muk_ai.session'].create({
-            'name': 'Filtered for load',
-            'agent_id': agent.id,
-        })
+        agent = self.env['muk_ai.agent'].create(
+            {
+                'name': 'Filtered for load',
+                'tool_filter': ['list_models'],
+            }
+        )
+        session = self.env['muk_ai.session'].create(
+            {
+                'name': 'Filtered for load',
+                'agent_id': agent.id,
+            }
+        )
         with self._patch_catalog():
             result, _ok = session._dispatch_tool_call(
-                'tool_load', {'names': ['rare_tool']}, 'call_7',
+                'tool_load',
+                {'names': ['rare_tool']},
+                'call_7',
             )
         self.assertEqual(result['loaded'], {})
         self.assertIn('rare_tool', result['unknown'])
@@ -220,10 +386,12 @@ class TestToolLazy(AITestCommon):
             self.assertIn(name, defaults)
 
     def test_agent_get_essential_tool_names_uses_configured_list(self):
-        agent = self.env['muk_ai.agent'].create({
-            'name': 'Configured',
-            'essential_tool_names': ['foo', 'bar', 'baz'],
-        })
+        agent = self.env['muk_ai.agent'].create(
+            {
+                'name': 'Configured',
+                'essential_tool_names': ['foo', 'bar', 'baz'],
+            }
+        )
         self.assertEqual(
             agent._get_essential_tool_names(),
             ['foo', 'bar', 'baz'],
@@ -239,16 +407,24 @@ class TestToolLazy(AITestCommon):
     # ----------------------------------------------------------
 
     def test_deferred_loop_executes_target_tool_like_eager(self):
-        agent = self.env['muk_ai.agent'].create({
-            'name': 'Parity agent',
-            'approval_mode': 'off',
-        })
-        session_lazy = self.env['muk_ai.session'].create({
-            'name': 'Lazy parity', 'agent_id': agent.id,
-        })
-        session_eager = self.env['muk_ai.session'].create({
-            'name': 'Eager parity', 'agent_id': agent.id,
-        })
+        agent = self.env['muk_ai.agent'].create(
+            {
+                'name': 'Parity agent',
+                'approval_mode': 'off',
+            }
+        )
+        session_lazy = self.env['muk_ai.session'].create(
+            {
+                'name': 'Lazy parity',
+                'agent_id': agent.id,
+            }
+        )
+        session_eager = self.env['muk_ai.session'].create(
+            {
+                'name': 'Eager parity',
+                'agent_id': agent.id,
+            }
+        )
         session_eager.expanded_tool_names = ['rare_tool']
         captured_lazy = []
         captured_eager = []
@@ -257,12 +433,16 @@ class TestToolLazy(AITestCommon):
             queue = list(scenario)
 
             def fake(self_arg, inputs, tools_schema=None, **kwargs):
-                captured.append({
-                    'tools': sorted(t['name'] for t in (tools_schema or [])),
-                })
+                captured.append(
+                    {
+                        'tools': sorted(t['name'] for t in (tools_schema or [])),
+                    }
+                )
                 if not queue:
-                    raise AssertionError('exhausted scripted provider responses')
+                    msg = 'exhausted scripted provider responses'
+                    raise AssertionError(msg)
                 return queue.pop(0)
+
             return patch.object(
                 type(self.provider),
                 '_request_responses',
@@ -273,15 +453,21 @@ class TestToolLazy(AITestCommon):
         def tool_call(name, arguments, call_id):
             return {
                 'text': '',
-                'tool_calls': [{
-                    'call_id': call_id, 'name': name, 'arguments': arguments,
-                }],
-                'carry_inputs': [{
-                    'type': 'function_call',
-                    'name': name,
-                    'arguments': json.dumps(arguments),
-                    'call_id': call_id,
-                }],
+                'tool_calls': [
+                    {
+                        'call_id': call_id,
+                        'name': name,
+                        'arguments': arguments,
+                    }
+                ],
+                'carry_inputs': [
+                    {
+                        'type': 'function_call',
+                        'name': name,
+                        'arguments': json.dumps(arguments),
+                        'call_id': call_id,
+                    }
+                ],
                 'usage': {'input_tokens': 4, 'output_tokens': 2},
             }
 
@@ -289,11 +475,13 @@ class TestToolLazy(AITestCommon):
             return {
                 'text': text,
                 'tool_calls': [],
-                'carry_inputs': [{
-                    'type': 'message',
-                    'role': 'assistant',
-                    'content': [{'type': 'output_text', 'text': text}],
-                }],
+                'carry_inputs': [
+                    {
+                        'type': 'message',
+                        'role': 'assistant',
+                        'content': [{'type': 'output_text', 'text': text}],
+                    }
+                ],
                 'usage': {'input_tokens': 3, 'output_tokens': 1},
             }
 
@@ -317,9 +505,17 @@ class TestToolLazy(AITestCommon):
             side_effect=fake_execute,
         )
 
-        with self._patch_catalog(), tool_patch, make_provider(captured_lazy, lazy_scenario):
+        with (
+            self._patch_catalog(),
+            tool_patch,
+            make_provider(captured_lazy, lazy_scenario),
+        ):
             session_lazy.start('list rare')
-        with self._patch_catalog(), tool_patch, make_provider(captured_eager, eager_scenario):
+        with (
+            self._patch_catalog(),
+            tool_patch,
+            make_provider(captured_eager, eager_scenario),
+        ):
             session_eager.start('list rare')
 
         self.assertEqual(session_lazy.state, 'done')
@@ -332,7 +528,8 @@ class TestToolLazy(AITestCommon):
             return [
                 event.payload
                 for event in session.event_ids
-                if event.kind == 'tool_result' and event.payload.get('name') == 'rare_tool'
+                if event.kind == 'tool_result'
+                and event.payload.get('name') == 'rare_tool'
             ]
 
         lazy_results = tool_results(session_lazy)

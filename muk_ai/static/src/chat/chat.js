@@ -1,4 +1,13 @@
-import { Component, markup, onMounted, onPatched, onWillStart, onWillUnmount, useRef, useState } from '@odoo/owl';
+import {
+    Component,
+    markup,
+    onMounted,
+    onPatched,
+    onWillStart,
+    onWillUnmount,
+    useRef,
+    useState,
+} from '@odoo/owl';
 
 import { _t } from '@web/core/l10n/translation';
 import { registry } from '@web/core/registry';
@@ -13,6 +22,7 @@ import { DropdownItem } from '@web/core/dropdown/dropdown_item';
 
 import { toFileModel, toInlineImageFile } from '@muk_ai/core/attachment/attachment';
 import { AttachmentCard } from '@muk_ai/core/attachment/attachment_card';
+import { useNotificationBadge } from '@muk_ai/core/notification_badge';
 import {
     approvalPill,
     costTooltip,
@@ -21,6 +31,7 @@ import {
     formatTimestamp,
     inputPlaceholder,
     statusBadgeClass,
+    statusIcon,
     statusLabel,
 } from '@muk_ai/chat/utils';
 
@@ -33,7 +44,9 @@ import {
 } from '@muk_ai/chat/session/use_scroll_anchor';
 import { ChatSidebar } from '@muk_ai/chat/sidebar/chat_sidebar';
 import { ChatArtifactsPanel } from '@muk_ai/chat/artifacts/chat_artifacts_panel';
+import { SourceIcon, SourceList } from '@muk_ai/chat/artifacts/types/sources_tab';
 import '@muk_ai/chat/artifacts/types/attachments_type';
+import '@muk_ai/chat/artifacts/types/sources_type';
 import { ChatSearch } from '@muk_ai/chat/search/chat_search';
 import {
     buildIndex,
@@ -43,6 +56,7 @@ import {
     highlightHtml,
 } from '@muk_ai/chat/search/search_index';
 import { ToolCard } from '@muk_ai/chat/tools/tool_card';
+import { ToolGroup, buildTurnItems } from '@muk_ai/chat/tools/tool_group';
 import {
     askArgsText,
     askViewMode,
@@ -70,14 +84,27 @@ function normalizeSuggestions(raw) {
         }));
 }
 
+/** Full-page AI chat client: sidebar, conversation, and composer. */
 export class AIChat extends Component {
     static template = 'muk_ai.Chat';
-    static components = { ChatSidebar, ChatArtifactsPanel, ChatSearch, ToolCard, ChatComposer, AttachmentCard, Dropdown, DropdownItem };
+    static components = {
+        ChatSidebar,
+        ChatArtifactsPanel,
+        ChatSearch,
+        ToolCard,
+        ToolGroup,
+        ChatComposer,
+        AttachmentCard,
+        SourceIcon,
+        SourceList,
+        Dropdown,
+        DropdownItem,
+    };
     static props = ['*'];
     get suggestions() {
         const agents = this.session.state.agents || [];
-        const agent = agents.find((a) => a.id === this.session.state.agentId)
-            || agents[0];
+        const agent =
+            agents.find((a) => a.id === this.session.state.agentId) || agents[0];
         return normalizeSuggestions(agent && agent.suggestions);
     }
     setup() {
@@ -94,8 +121,18 @@ export class AIChat extends Component {
                 await this._loadSessions();
                 await this._selectSession(newId);
             },
+            onHandedOver: async (sessionId) => {
+                this.state.sessions = this.state.sessions.filter(
+                    (s) => s.id !== sessionId,
+                );
+                if (this.session.state.sessionId === sessionId) {
+                    await this._selectSession(this.state.sessions[0]?.id || null);
+                }
+                await this._loadSessions();
+            },
         });
         this.fileViewer = useFileViewer();
+        this.badge = useNotificationBadge();
         this.state = useState({
             loading: true,
             sessions: [],
@@ -112,23 +149,28 @@ export class AIChat extends Component {
             activeMatchIdx: 0,
             scrollTarget: null,
             askViews: {},
+            sourcesExpanded: {},
             resumeTick: 0,
         });
         this._sessionsSearchSeq = 0;
         this._sessionsSearchTimer = null;
         this._resumeTickInterval = null;
         this.rootRef = useRef('root');
-        const { scrollRef, scrollToBottom, state: scrollState } = useChatScrollAnchor('scrollArea');
+        const {
+            scrollRef,
+            scrollToBottom,
+            state: scrollState,
+        } = useChatScrollAnchor('scrollArea');
         this.scrollRef = scrollRef;
         this.scrollToBottom = scrollToBottom;
         this.scrollState = scrollState;
         this.session.setScrollCallback(scrollToBottom);
-        onScrollUpNearTop(scrollRef, () => preserveAnchor(
-            scrollRef,
-            () => this.session.loadMoreEvents(),
-        ));
+        onScrollUpNearTop(scrollRef, () =>
+            preserveAnchor(scrollRef, () => this.session.loadMoreEvents()),
+        );
         this._userBusHandler = null;
         this._loadSeq = 0;
+        this._sessionFetchIds = new Set();
         useDropzone(
             this.rootRef,
             (event) => {
@@ -144,8 +186,7 @@ export class AIChat extends Component {
             await Promise.all([this._loadSessions(), this.session.loadAgents()]);
             this._connectUserBus();
             const requested = this._getRequestedSessionId();
-            const isMobile = typeof window !== 'undefined'
-                && window.innerWidth < 768;
+            const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
             let opened = false;
             if (requested) {
                 if (this.state.sessions.some((s) => s.id === requested)) {
@@ -158,10 +199,9 @@ export class AIChat extends Component {
                         this.state.sidebarHidden = true;
                         opened = true;
                     } else {
-                        this.notification.add(
-                            _t('That AI session no longer exists.'),
-                            { type: 'warning' },
-                        );
+                        this.notification.add(_t('That AI session no longer exists.'), {
+                            type: 'warning',
+                        });
                     }
                 }
             }
@@ -177,8 +217,10 @@ export class AIChat extends Component {
             this._installImageClickHandler();
             this._installRootPasteHandler();
             this._resumeTickInterval = window.setInterval(() => {
-                if (this.session.state.status === 'waiting_schedule'
-                        && this.session.state.resumeAt) {
+                if (
+                    this.session.state.status === 'waiting_schedule' &&
+                    this.session.state.resumeAt
+                ) {
                     this.state.resumeTick += 1;
                 }
             }, 5000);
@@ -189,6 +231,10 @@ export class AIChat extends Component {
         onWillUnmount(() => {
             this._disconnectUserBus();
             this._uninstallRootPasteHandler();
+            if (this._sessionsSearchTimer !== null) {
+                window.clearTimeout(this._sessionsSearchTimer);
+                this._sessionsSearchTimer = null;
+            }
             if (this._resumeTickInterval !== null) {
                 window.clearInterval(this._resumeTickInterval);
                 this._resumeTickInterval = null;
@@ -255,9 +301,11 @@ export class AIChat extends Component {
         }
     }
     async _loadMoreSessions() {
-        if (this.state.sessionsLoadingMore
-                || !this.state.sessionsHasMore
-                || this.state.sessionsSearchMode) {
+        if (
+            this.state.sessionsLoadingMore ||
+            !this.state.sessionsHasMore ||
+            this.state.sessionsSearchMode
+        ) {
             return;
         }
         this.state.sessionsLoadingMore = true;
@@ -317,7 +365,9 @@ export class AIChat extends Component {
             this._sessionsSearchTimer = null;
         }
         if (!trimmed) {
+            this._sessionsSearchSeq++;
             this.state.sessionsSearchMode = false;
+            this.state.sessionsSearching = false;
             this._loadSessions();
             return;
         }
@@ -341,16 +391,29 @@ export class AIChat extends Component {
         }
         router.pushState({ session_id: sessionId || undefined });
     }
+    /**
+     * Create and switch to a new session. Raises state.loading before the
+     * first RPC so the composer (canSend gates on it) stays closed for the
+     * whole switch — a send in that window would run in the outgoing
+     * session and paint nothing in the new one.
+     */
     async onNewSession() {
         const name = _t('Chat %s', new Date().toLocaleString());
         const carryOver = this.session.state.viewContext;
-        const sessionId = await this.orm.create('muk_ai.session', [{ name }]);
-        const id = Array.isArray(sessionId) ? sessionId[0] : sessionId;
-        if (carryOver && carryOver.model) {
-            await seedSessionContext(this.env, id, carryOver);
+        this.session.state.loading = true;
+        let id;
+        try {
+            const sessionId = await this.orm.create('muk_ai.session', [{ name }]);
+            id = Array.isArray(sessionId) ? sessionId[0] : sessionId;
+            if (carryOver && carryOver.model) {
+                await seedSessionContext(this.env, id, carryOver);
+            }
+        } catch (error) {
+            this.session.state.loading = false;
+            throw error;
         }
-        await this._loadSessions();
         await this._selectSession(id);
+        await this._loadSessions();
     }
     async onStartWithPrompt(prompt) {
         await this.onNewSession();
@@ -390,9 +453,7 @@ export class AIChat extends Component {
     toggleArtifacts() {
         const willOpen = this.state.artifactsHidden;
         this.state.artifactsHidden = !this.state.artifactsHidden;
-        if (willOpen
-                && typeof window !== 'undefined'
-                && window.innerWidth < 1200) {
+        if (willOpen && typeof window !== 'undefined' && window.innerWidth < 1200) {
             this.state.sidebarHidden = true;
         }
     }
@@ -473,7 +534,7 @@ export class AIChat extends Component {
         if (el) {
             try {
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            } catch (_e) {
+            } catch {
                 el.scrollIntoView();
             }
             el.classList.add('mk_search_pulse');
@@ -510,9 +571,12 @@ export class AIChat extends Component {
             (e) => e.role === 'assistant' && e.text === text,
         );
         const firstIdx = entry ? entryFirstMatchIndex(matches, entry) : -1;
-        const sourceHtml = typeof rendered === 'string'
-            ? rendered
-            : (rendered && rendered.toString) ? rendered.toString() : String(rendered || '');
+        const sourceHtml =
+            typeof rendered === 'string'
+                ? rendered
+                : rendered && rendered.toString
+                  ? rendered.toString()
+                  : String(rendered || '');
         const highlighted = highlightHtml(
             sourceHtml,
             this.state.searchQuery,
@@ -553,9 +617,62 @@ export class AIChat extends Component {
     toggleToolBlock(callId) {
         this.session.toggleToolBlock(callId);
     }
+    turnSourcesKey(turn, index) {
+        return turn.eventId ? `e${turn.eventId}` : `t${index}`;
+    }
+    isTurnSourcesExpanded(turn, index) {
+        return !!this.state.sourcesExpanded[this.turnSourcesKey(turn, index)];
+    }
+    toggleTurnSources(turn, index) {
+        const key = this.turnSourcesKey(turn, index);
+        this.state.sourcesExpanded = {
+            ...this.state.sourcesExpanded,
+            [key]: !this.state.sourcesExpanded[key],
+        };
+    }
     onOpenAttachment(attachment) {
         const file = toFileModel(attachment);
         this.fileViewer.open(file);
+    }
+    async _fetchSidebarSession(sessionId) {
+        if (this.state.sessionsSearchMode || this._sessionFetchIds.has(sessionId)) {
+            return;
+        }
+        this._sessionFetchIds.add(sessionId);
+        try {
+            const seq = this._loadSeq;
+            const [session] = await this.orm.searchRead(
+                'muk_ai.session',
+                [
+                    ['id', '=', sessionId],
+                    ['user_id', '=', user.userId],
+                ],
+                ['id', 'name', 'state', 'create_date'],
+                { limit: 1 },
+            );
+            if (
+                !session ||
+                seq !== this._loadSeq ||
+                this.state.sessionsSearchMode ||
+                this.state.sessions.some((s) => s.id === session.id)
+            ) {
+                return;
+            }
+            const pos = this.state.sessions.findIndex(
+                (s) => s.create_date < session.create_date,
+            );
+            if (pos < 0) {
+                this.state.sessions = [...this.state.sessions, session];
+            } else {
+                this.state.sessions = [
+                    ...this.state.sessions.slice(0, pos),
+                    session,
+                    ...this.state.sessions.slice(pos),
+                ];
+            }
+        } finally {
+            this._sessionFetchIds.delete(sessionId);
+        }
     }
     _connectUserBus() {
         this._disconnectUserBus();
@@ -572,9 +689,18 @@ export class AIChat extends Component {
         if (!payload || !payload.session_id) {
             return;
         }
+        if (payload.deleted) {
+            this.state.sessions = this.state.sessions.filter(
+                (s) => s.id !== payload.session_id,
+            );
+            if (this.session.state.sessionId === payload.session_id) {
+                this._selectSession(this.state.sessions[0]?.id || null);
+            }
+            return;
+        }
         const idx = this.state.sessions.findIndex((s) => s.id === payload.session_id);
         if (idx < 0) {
-            this._loadSessions();
+            this._fetchSidebarSession(payload.session_id);
             return;
         }
         const updated = { ...this.state.sessions[idx] };
@@ -636,7 +762,7 @@ export class AIChat extends Component {
             const raw = params.get('session_id');
             const id = raw ? parseInt(raw, 10) : 0;
             return Number.isInteger(id) && id > 0 ? id : null;
-        } catch (_e) {
+        } catch {
             return null;
         }
     }
@@ -660,9 +786,7 @@ export class AIChat extends Component {
         if (pending && pending.call_id === block.callId) {
             return true;
         }
-        return turn.blocks.some(
-            (b) => b.type === 'ask' && b.callId === block.callId,
-        );
+        return turn.blocks.some((b) => b.type === 'ask' && b.callId === block.callId);
     }
     isToolStreaming(block) {
         if (block.result !== null && block.result !== undefined) {
@@ -670,6 +794,14 @@ export class AIChat extends Component {
         }
         const status = this.session.state.status;
         return status === 'running' || status === 'compacting';
+    }
+    turnItems(turn) {
+        return buildTurnItems(turn.blocks, (block) =>
+            this.isToolHiddenForAsk(block, turn),
+        );
+    }
+    get isCompact() {
+        return false;
     }
     get canSend() {
         return this.isOwner && this.session.canSend();
@@ -705,6 +837,9 @@ export class AIChat extends Component {
     statusBadgeClass(status) {
         return statusBadgeClass(status);
     }
+    statusIcon(status) {
+        return statusIcon(status);
+    }
     get resumeRelativeText() {
         void this.state.resumeTick;
         const relative = formatRelativeTime(this.session.state.resumeAt);
@@ -720,9 +855,10 @@ export class AIChat extends Component {
         }
         return Math.max(
             0,
-            Math.min(100, Math.round(
-                (this.session.state.lastInputTokens / window) * 100,
-            )),
+            Math.min(
+                100,
+                Math.round((this.session.state.lastInputTokens / window) * 100),
+            ),
         );
     }
     get contextClass() {
@@ -739,10 +875,10 @@ export class AIChat extends Component {
         const tokens = this.session.state.lastInputTokens || 0;
         const window = this.session.state.contextWindow || 0;
         const fmt = new Intl.NumberFormat();
-        return _t(
-            'Context window: %(tokens)s / %(window)s tokens',
-            { tokens: fmt.format(tokens), window: fmt.format(window) },
-        );
+        return _t('Context window: %(tokens)s / %(window)s tokens', {
+            tokens: fmt.format(tokens),
+            window: fmt.format(window),
+        });
     }
     askArgsText(block) {
         return askArgsText(block);
