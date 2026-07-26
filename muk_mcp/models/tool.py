@@ -254,7 +254,7 @@ class MCPTool(models.Model):
 
     def _run(self, arguments, env):
         eval_context = self._get_eval_context(arguments, env)
-        safe_eval(self.code.strip(), eval_context, mode="exec")
+        safe_eval(self.code.strip(), eval_context, mode="exec", nocopy=True)
         return self._serialize_result(eval_context.get('result'))
 
     # ----------------------------------------------------------
@@ -263,14 +263,17 @@ class MCPTool(models.Model):
 
     @api.model
     def get_tools(self, registry=None):
-        return [
-            {
+        result = []
+        for name, entry in get_tool_index(self.env, registry=registry).items():
+            tool = {
                 'name': name,
                 'description': entry['description'],
                 'inputSchema': entry['input_schema'],
             }
-            for name, entry in get_tool_index(self.env, registry=registry).items()
-        ]
+            if entry.get('meta'):
+                tool['_meta'] = entry['meta']
+            result.append(tool)
+        return result
 
     @api.model
     def get_playground_tools(self):
