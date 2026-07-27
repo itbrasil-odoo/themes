@@ -17,7 +17,10 @@ class TestHoot(odoo.tests.HttpCase):
             cls.env,
             login='hoot_muk_mcp',
             password='hoot_muk_mcp',
-            groups='base.group_user',
+            # hoot's module-set resolution calls all_dependencies on
+            # ir.module.module.dependency, which base grants to group_system
+            # only; without it every run fails on an unhandled AccessError.
+            groups='base.group_user,base.group_system',
             context={
                 'mail_create_nosubscribe': True,
                 'mail_notrack': True,

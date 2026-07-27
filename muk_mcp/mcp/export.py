@@ -10,7 +10,8 @@ from odoo.addons.muk_mcp.tools.descriptions import (
     ids_field,
     model_field,
 )
-from odoo.addons.web.controllers.export import CSVExport, ExcelExport
+from odoo.addons.muk_mcp.tools.xlsx import XlsxExport
+from odoo.addons.web.controllers.export import CSVExport
 
 
 class MCPMixin(models.AbstractModel):
@@ -40,7 +41,7 @@ class MCPMixin(models.AbstractModel):
 
     @api.model
     def _build_exporter(self, format):
-        return ExcelExport() if format == 'xlsx' else CSVExport()
+        return XlsxExport() if format == 'xlsx' else CSVExport()
 
     # ----------------------------------------------------------
     # Functions
