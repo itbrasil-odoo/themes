@@ -1,29 +1,30 @@
 {
-    'name': 'MuK Contacts', 
+    'name': 'MuK Contacts',
     'summary': 'Improves the contact app',
-    'description': '''
+    'description': """
         This module improves and extends the contact app
         and the related partner model.
-    ''',
-    'version': '18.0.1.0.3',
+    """,
+    'version': '18.0.1.1.1',
     'category': 'Sales/CRM',
-    'license': 'LGPL-3', 
+    'license': 'LGPL-3',
     'author': 'MuK IT',
     'website': 'http://www.mukit.at',
-    'live_test_url': 'https://my.mukit.at/r/f6m',
+    'live_test_url': 'https://youtu.be/UE_owy582jY',
     'contributors': [
         'Mathias Markl <mathias.markl@mukit.at>',
     ],
     'depends': [
-        'mail',
-        'base_vat',
+        'base_setup',
         'contacts',
+        'mail',
         'muk_web_utils',
     ],
     'data': [
         'data/ir_sequence.xml',
         'templates/ir_qweb_widget.xml',
         'views/res_partner.xml',
+        'views/res_config_settings.xml',
         'views/base_partner_merge.xml',
     ],
     'images': [
