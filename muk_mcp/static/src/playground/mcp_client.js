@@ -1,11 +1,12 @@
 const MCP_ENDPOINT = "/mcp";
-const PROTOCOL_VERSION = "2025-03-26";
+const PREFERRED_PROTOCOL_VERSION = "2025-11-25";
 export const STORAGE_KEY = "muk_mcp.playground.key";
 
 export class MCPClient {
     constructor() {
         this.sessionId = null;
         this.initialized = false;
+        this.protocolVersion = null;
         this._nextId = 1;
     }
     get key() {
@@ -19,6 +20,7 @@ export class MCPClient {
         }
         this.sessionId = null;
         this.initialized = false;
+        this.protocolVersion = null;
     }
     _headers(extra = {}) {
         const headers = {
@@ -31,6 +33,9 @@ export class MCPClient {
         }
         if (this.sessionId) {
             headers["Mcp-Session-Id"] = this.sessionId;
+        }
+        if (this.protocolVersion) {
+            headers["MCP-Protocol-Version"] = this.protocolVersion;
         }
         return headers;
     }
@@ -62,7 +67,7 @@ export class MCPClient {
             id: this._nextId++,
             method: "initialize",
             params: {
-                protocolVersion: PROTOCOL_VERSION,
+                protocolVersion: PREFERRED_PROTOCOL_VERSION,
                 capabilities: {},
                 clientInfo: { name: "muk_mcp.playground", version: "1.0" },
             },
@@ -73,6 +78,7 @@ export class MCPClient {
                     `Initialize failed (HTTP ${init.status})`
             );
         }
+        this.protocolVersion = init.body.result?.protocolVersion || null;
         await this._post({
             jsonrpc: "2.0",
             method: "notifications/initialized",
@@ -115,5 +121,6 @@ export class MCPClient {
         }
         this.sessionId = null;
         this.initialized = false;
+        this.protocolVersion = null;
     }
 }
