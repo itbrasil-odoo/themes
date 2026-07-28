@@ -8,7 +8,11 @@
             <field name="arch" type="xml">
                 <xpath expr="//field[@name='groups_id']" position="after">
                     <field name="execute_in_batch" widget="boolean_toggle"/>
-                    <field name="execution_batch_size" invisible="not execute_in_batch"/>
+                    <field 
+                        name="execution_batch_size" 
+                        string="Batch Size"
+                        invisible="not execute_in_batch"
+                    />
                 </xpath>
             </field>
         </record>
