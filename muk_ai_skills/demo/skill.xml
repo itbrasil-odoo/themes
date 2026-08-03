@@ -4,7 +4,9 @@
 
 	<record id="demo_skill_log" model="muk_ai.skill">
 		<field name="name">log</field>
+		<field name="user_ids" eval="[(5, 0, 0)]"/>
 		<field name="label">Log Note</field>
+		<field name="icon">fa-sticky-note-o</field>
 		<field name="description">Post a one-line internal log note on the pinned record's chatter — no composer, no review.</field>
 		<field name="body"><![CDATA[
 Post a quick internal log note on the pinned record's chatter. Fast complement to `/reply` —
@@ -32,7 +34,9 @@ note for the team.
 
 	<record id="demo_skill_escalate" model="muk_ai.skill">
 		<field name="name">escalate</field>
+		<field name="user_ids" eval="[(5, 0, 0)]"/>
 		<field name="label">Schedule Activity</field>
+		<field name="icon">fa-calendar-plus-o</field>
 		<field name="description">Schedule a follow-up activity (to-do, call, meeting, email) on the pinned record.</field>
 		<field name="body"><![CDATA[
 Schedule a `mail.activity` on the pinned record. Use when the user wants to create a follow-up

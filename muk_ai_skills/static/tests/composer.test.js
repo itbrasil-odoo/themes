@@ -6,23 +6,19 @@ import { defineMailModels } from '@mail/../tests/mail_test_helpers';
 
 import { ChatComposer } from '@muk_ai/chat/composer/chat_composer';
 
-import {
-    clearSkills,
-    setActiveSessionId,
-    setSkills,
-} from '@muk_ai_skills/chat/skill_cache';
+import { setSkills } from '@muk_ai_skills/chat/skill_cache';
 
 describe.current.tags('muk_ai_skills');
 defineMailModels();
 
-
-function makeParent({ value = '' } = {}) {
+function makeParent({ value = '', sessionId = 42 } = {}) {
     class Parent extends Component {
         static components = { ChatComposer };
         static props = {};
         static template = xml`
             <ChatComposer
                 value="props.value"
+                sessionId="props.sessionId"
                 placeholder="'type'"
                 canSend="false"
                 canStop="false"
@@ -34,41 +30,36 @@ function makeParent({ value = '' } = {}) {
             />
         `;
     }
-    Parent.props = { value: { type: String } };
-    return { Parent, props: { value } };
+    Parent.props = { value: { type: String }, sessionId: { type: Number } };
+    return { Parent, props: { value, sessionId } };
 }
-
 
 function reset() {
-    clearSkills(42);
-    setActiveSessionId(null);
+    setSkills(42, []);
+    setSkills(99, []);
 }
 
-
-test('skills do not appear when no active session is set', async () => {
+test("another session's skills do not leak into this composer", async () => {
     reset();
-    setSkills(42, [{ name: 'alpha', description: 'Do alpha.' }]);
-    const { Parent, props } = makeParent({ value: '/al' });
+    setSkills(99, [{ name: 'alpha', description: 'Do alpha.' }]);
+    const { Parent, props } = makeParent({ value: '/al', sessionId: 42 });
     await mountWithCleanup(Parent, { props });
     const labels = queryAll('.mk_slash_item').map((el) => el.textContent);
     expect(labels.some((l) => l.includes('/alpha'))).toBe(false);
 });
 
-
-test('active-session skills appear in the slash menu', async () => {
+test('the composer session skills appear in the slash menu', async () => {
     reset();
     setSkills(42, [
         { name: 'alpha', description: 'Do alpha.' },
         { name: 'beta', description: 'Do beta.' },
     ]);
-    setActiveSessionId(42);
-    const { Parent, props } = makeParent({ value: '/' });
+    const { Parent, props } = makeParent({ value: '/', sessionId: 42 });
     await mountWithCleanup(Parent, { props });
     const labels = queryAll('.mk_slash_item').map((el) => el.textContent);
     expect(labels.some((l) => l.includes('/alpha'))).toBe(true);
     expect(labels.some((l) => l.includes('/beta'))).toBe(true);
 });
-
 
 test('skill entries are filtered by typed prefix', async () => {
     reset();
@@ -76,32 +67,27 @@ test('skill entries are filtered by typed prefix', async () => {
         { name: 'alpha', description: 'A.' },
         { name: 'beta', description: 'B.' },
     ]);
-    setActiveSessionId(42);
-    const { Parent, props } = makeParent({ value: '/al' });
+    const { Parent, props } = makeParent({ value: '/al', sessionId: 42 });
     await mountWithCleanup(Parent, { props });
     const labels = queryAll('.mk_slash_item').map((el) => el.textContent);
     expect(labels.some((l) => l.includes('/alpha'))).toBe(true);
     expect(labels.some((l) => l.includes('/beta'))).toBe(false);
 });
 
-
 test('skill description renders as the slash menu hint', async () => {
     reset();
     setSkills(42, [{ name: 'alpha', description: 'Do alpha things.' }]);
-    setActiveSessionId(42);
-    const { Parent, props } = makeParent({ value: '/al' });
+    const { Parent, props } = makeParent({ value: '/al', sessionId: 42 });
     await mountWithCleanup(Parent, { props });
     const item = queryFirst('.mk_slash_item');
     expect(item).not.toBe(null);
     expect(item.textContent).toMatch(/Do alpha things\./);
 });
 
-
 test('skills do not duplicate a built-in slash command of the same name', async () => {
     reset();
     setSkills(42, [{ name: 'help', description: 'Hijack attempt.' }]);
-    setActiveSessionId(42);
-    const { Parent, props } = makeParent({ value: '/help' });
+    const { Parent, props } = makeParent({ value: '/help', sessionId: 42 });
     await mountWithCleanup(Parent, { props });
     const helpItems = queryAll('.mk_slash_item').filter((el) =>
         el.textContent.includes('/help'),
@@ -109,12 +95,10 @@ test('skills do not duplicate a built-in slash command of the same name', async 
     expect(helpItems.length).toBe(1);
 });
 
-
 test('non-slash input is unaffected by skills', async () => {
     reset();
     setSkills(42, [{ name: 'alpha', description: 'Do alpha.' }]);
-    setActiveSessionId(42);
-    const { Parent, props } = makeParent({ value: 'hello' });
+    const { Parent, props } = makeParent({ value: 'hello', sessionId: 42 });
     await mountWithCleanup(Parent, { props });
     expect('.mk_slash_item').toHaveCount(0);
 });

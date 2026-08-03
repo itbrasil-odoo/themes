@@ -1,23 +1,20 @@
-import odoo.tests
+from __future__ import annotations
 
+import odoo.tests
 from odoo.tests.common import new_test_user, tagged
 
 
 @tagged('post_install', '-at_install')
 class TestHoot(odoo.tests.HttpCase):
+    """Run the muk_ai_skills HOOT JavaScript test suite."""
 
     # ----------------------------------------------------------
     # Setup
     # ----------------------------------------------------------
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         super().setUpClass()
-        # group_system is required on Odoo 18: the Hoot runner resolves a
-        # non-default addon's dependencies via ir.module.module.dependency
-        # .all_dependencies(), restricted to Settings access on 18 (open to all
-        # users on 19). The suite uses a mock server, so this does not affect
-        # the component tests.
         cls.hoot_user = new_test_user(
             cls.env,
             login='hoot_muk_ai_skills',

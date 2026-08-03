@@ -1,7 +1,7 @@
 <section class="oe_container">
 	<div class="oe_row oe_spaced">
 		<h2 class="oe_slogan">MuK AI Skills</h2>
-		<h3 class="oe_slogan mb-0">Pre-built Agent Skills, One Slash Command Away</h3>
+		<h3 class="oe_slogan mb-0">Pre-built Agent Skills, One Click Away</h3>
 		<img src="logo.png" style="width: 150px;" class="mx-auto center-block">
 		<h4 class="oe_slogan mt-0" style="font-size: 23px">MuK IT GmbH - www.mukit.at</h4>
 		<div class="mb-4" style="text-align: center;">
@@ -29,9 +29,10 @@
 				instructions, and optional file attachments. Visible
 				skills show up in a system-prompt addendum so the
 				agent can pick one autonomously, and users can fire
-				them directly with <code>/&lt;name&gt;</code> in chat.
-				Plugs into <code>muk_ai</code> via <code>_inherit</code>
-				only &mdash; no fork.
+				them from the skills panel in the composer or with
+				<code>/&lt;name&gt;</code> in chat. Plugs into
+				<code>muk_ai</code> via <code>_inherit</code> only
+				&mdash; no fork.
 			</p>
 		</div>
 	</div>
@@ -42,16 +43,35 @@
 		<div class="text-justify" style="max-width:84%; margin:16px 8%">
 			<h3 class="oe_slogan">Manage Skills</h3>
 			<p>
-				Each skill carries a technical name, label,
+				Each skill carries a technical name, label, icon,
 				description, markdown body and an attachment list.
-				Body edits are versioned via the reusable
-				<code>muk_ai.revision.mixin</code> from
-				<code>muk_ai</code>; the History stat button rolls
-				back to any prior revision.
+				Visibility is a single three-way choice &mdash; only
+				me, selected users, everyone. Body edits are versioned
+				via the reusable <code>muk_ai.revision.mixin</code>
+				from <code>muk_ai</code>; the History stat button
+				rolls back to any prior revision.
 			</p>
 			<div class="oe_demo oe_screenshot mt16">
 				<img src="screenshot_skill_form.png">
 			</div>
+		</div>
+	</div>
+</section>
+
+<section class="oe_container">
+	<div class="oe_row oe_spaced">
+		<div class="text-justify" style="max-width:84%; margin:16px 8%">
+			<h3 class="oe_slogan">Skills Panel in the Composer</h3>
+			<p>
+				The bolt next to the paperclip opens every skill the
+				session can reach, as cards with icon, label and
+				description. Its own search field filters them, the
+				ones you ran last sit on top under
+				<em>Recently used</em>, and arrow keys plus
+				<kbd>Enter</kbd> run one without touching the mouse.
+				Nothing is auto-focused on a touch device, so the
+				on-screen keyboard never covers the list.
+			</p>
 		</div>
 	</div>
 </section>
@@ -98,54 +118,54 @@
 		<h3 class="oe_slogan">More Apps from MuK IT</h3>
 		<div class="d-flex flex-wrap justify-content-center align-items-stretch gap-4" style="margin: 24px auto;">
 			<div class="d-flex flex-column align-items-center text-center" style="width: 150px;">
-				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/19.0/muk_ai_schedule/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
+				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/18.0/muk_ai_schedule/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
 					<div class="d-flex align-items-center justify-content-center shadow-sm" style="width: 96px; height: 96px; border-radius: 20px; background-color: #fff;">
-						<img src="//apps.odoocdn.com/apps/assets/19.0/muk_ai_schedule/icon.png" alt="MuK AI Schedule" style="width: 72px; height: 72px; object-fit: contain; border-radius: 14px;">
+						<img src="//apps.odoocdn.com/apps/assets/18.0/muk_ai_schedule/icon.png" alt="MuK AI Schedule" style="width: 72px; height: 72px; object-fit: contain; border-radius: 14px;">
 					</div>
 					<h3 class="oe_slogan" style="text-align: center; font-size: 15px; width: 100%; margin: 8px 0 2px; color: #000 !important; opacity: 1 !important; line-height: 18px;">MuK AI Schedule</h3>
 					<div style="font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: #5D8DA8; margin-bottom: 6px;">Cron Agents</div>
 				</a>
-				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/19.0/muk_ai_schedule/" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View Module &rsaquo;</a>
+				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/18.0/muk_ai_schedule/" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View Module &rsaquo;</a>
 			</div>
 			<div class="d-flex flex-column align-items-center text-center" style="width: 150px;">
-				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/19.0/muk_oidc/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
+				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/18.0/muk_oidc/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
 					<div class="d-flex align-items-center justify-content-center shadow-sm" style="width: 96px; height: 96px; border-radius: 20px; background-color: #fff;">
-						<img src="//apps.odoocdn.com/apps/assets/19.0/muk_oidc/icon.png" alt="MuK OpenID Connect" style="width: 72px; height: 72px; object-fit: contain; border-radius: 14px;">
+						<img src="//apps.odoocdn.com/apps/assets/18.0/muk_oidc/icon.png" alt="MuK OpenID Connect" style="width: 72px; height: 72px; object-fit: contain; border-radius: 14px;">
 					</div>
 					<h3 class="oe_slogan" style="text-align: center; font-size: 15px; width: 100%; margin: 8px 0 2px; color: #000 !important; opacity: 1 !important; line-height: 18px;">MuK OpenID Connect</h3>
 					<div style="font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: #5D8DA8; margin-bottom: 6px;">OpenID Connect</div>
 				</a>
-				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/19.0/muk_oidc/" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View Module &rsaquo;</a>
+				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/18.0/muk_oidc/" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View Module &rsaquo;</a>
 			</div>
 			<div class="d-flex flex-column align-items-center text-center" style="width: 150px;">
-				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/19.0/muk_mcp_oauth/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
+				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/18.0/muk_mcp_oauth/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
 					<div class="d-flex align-items-center justify-content-center shadow-sm" style="width: 96px; height: 96px; border-radius: 20px; background-color: #fff;">
-						<img src="//apps.odoocdn.com/apps/assets/19.0/muk_mcp_oauth/icon.png" alt="MuK MCP OAuth" style="width: 72px; height: 72px; object-fit: contain; border-radius: 14px;">
+						<img src="//apps.odoocdn.com/apps/assets/18.0/muk_mcp_oauth/icon.png" alt="MuK MCP OAuth" style="width: 72px; height: 72px; object-fit: contain; border-radius: 14px;">
 					</div>
 					<h3 class="oe_slogan" style="text-align: center; font-size: 15px; width: 100%; margin: 8px 0 2px; color: #000 !important; opacity: 1 !important; line-height: 18px;">MuK MCP OAuth</h3>
 					<div style="font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: #5D8DA8; margin-bottom: 6px;">MCP OAuth</div>
 				</a>
-				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/19.0/muk_mcp_oauth/" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View Module &rsaquo;</a>
+				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/18.0/muk_mcp_oauth/" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View Module &rsaquo;</a>
 			</div>
 			<div class="d-flex flex-column align-items-center text-center" style="width: 150px;">
-				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/19.0/muk_web_list_split/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
+				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/18.0/muk_web_list_split/" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
 					<div class="d-flex align-items-center justify-content-center shadow-sm" style="width: 96px; height: 96px; border-radius: 20px; background-color: #fff;">
-						<img src="//apps.odoocdn.com/apps/assets/19.0/muk_web_list_split/icon.png" alt="MuK Split View" style="width: 72px; height: 72px; object-fit: contain; border-radius: 14px;">
+						<img src="//apps.odoocdn.com/apps/assets/18.0/muk_web_list_split/icon.png" alt="MuK Split View" style="width: 72px; height: 72px; object-fit: contain; border-radius: 14px;">
 					</div>
 					<h3 class="oe_slogan" style="text-align: center; font-size: 15px; width: 100%; margin: 8px 0 2px; color: #000 !important; opacity: 1 !important; line-height: 18px;">MuK Split View</h3>
 					<div style="font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: #5D8DA8; margin-bottom: 6px;">List + Form</div>
 				</a>
-				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/19.0/muk_web_list_split/" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View Module &rsaquo;</a>
+				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/18.0/muk_web_list_split/" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View Module &rsaquo;</a>
 			</div>
 			<div class="d-flex flex-column align-items-center text-center" style="width: 150px;">
-				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/browse?series=19.0&author=MuK+IT" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
+				<a class="d-flex flex-column align-items-center flex-grow-1" href="https://apps.odoo.com/apps/modules/browse?series=18.0&author=MuK+IT" target="_blank" rel="noopener" style="text-decoration: none; color: inherit;">
 					<div class="d-flex align-items-center justify-content-center shadow-sm" style="width: 96px; height: 96px; border-radius: 20px; background-color: #fff; color: #5D8DA8;">
 						<i class="fa fa-th" style="font-size: 55px;"></i>
 					</div>
 					<h3 class="oe_slogan" style="text-align: center; font-size: 15px; width: 100%; margin: 8px 0 2px; color: #000 !important; opacity: 1 !important; line-height: 18px;">All MuK Apps</h3>
 					<div style="font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: #5D8DA8; margin-bottom: 6px;">Browse</div>
 				</a>
-				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/browse?series=19.0&author=MuK+IT" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View All &rsaquo;</a>
+				<a class="d-inline-block mt-auto" href="https://apps.odoo.com/apps/modules/browse?series=18.0&author=MuK+IT" target="_blank" rel="noopener" style="padding: 6px 14px; border-radius: 999px; background-color: #243742; color: #fff; font-size: 12px; font-weight: 500; letter-spacing: 0.3px; text-decoration: none;">View All &rsaquo;</a>
 			</div>
 		</div>
 	</div>

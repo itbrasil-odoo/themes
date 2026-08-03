@@ -1,14 +1,15 @@
 {
     'name': 'MuK AI Skills',
     'summary': 'Pre-built AI agent skills the user or LLM can switch into',
-    'description': '''
+    'description': """
         Adds DB-backed skill records that bundle a name, a one-line
         description for LLM discovery, a markdown body and supporting
         attachments. Visible skills are listed in a system-prompt
         addendum so the agent can pick one autonomously, and users
-        can invoke them directly with a /<name> slash command in chat.
-    ''',
-    'version': '18.0.1.0.22',
+        can invoke them directly with a /<name> slash command or from
+        the skills panel in the chat composer.
+    """,
+    'version': '18.0.1.2.0',
     'category': 'Productivity',
     'license': 'LGPL-3',
     'author': 'MuK IT',
@@ -21,9 +22,9 @@
     ],
     'data': [
         'security/ir.model.access.csv',
+        'security/security.xml',
         'data/skill.xml',
         'views/skill.xml',
-        'views/res_config_settings.xml',
         'views/menu.xml',
     ],
     'demo': [

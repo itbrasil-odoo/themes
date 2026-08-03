@@ -4,7 +4,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: Odoo Server 19.0+e\n"
+"Project-Id-Version: Odoo Server 18.0+e\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-05-05 16:51+0000\n"
 "PO-Revision-Date: 2026-05-05 16:51+0000\n"
@@ -343,11 +343,6 @@ msgstr ""
 #: model:ir.model,name:muk_ai_skills.model_muk_mcp_mixin
 msgid "MCP Tool Mixin"
 msgstr "MCP-Tool-Mixin"
-
-#. module: muk_ai_skills
-#: model_terms:ir.ui.view,arch_db:muk_ai_skills.view_res_config_settings_form
-msgid "Manage AI Skills"
-msgstr "KI-Fähigkeiten verwalten"
 
 #. module: muk_ai_skills
 #: model_terms:ir.ui.view,arch_db:muk_ai_skills.view_muk_ai_skill_form
