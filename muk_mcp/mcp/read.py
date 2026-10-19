@@ -21,21 +21,19 @@ class MCPMixin(models.AbstractModel):
     # ----------------------------------------------------------
 
     @api.model
-    def _swap_binary_to_uri(self, model, rows):
-        target = self.env[model]
-        binary_fields = [
-            name for name, field in target._fields.items()
-            if field.type == 'binary'
+    def _mcp_read(self, records, fields):
+        binary = [
+            name for name in fields
+            if (field := records._fields.get(name)) and field.type == 'binary'
         ]
-        if not binary_fields:
-            return rows
-        for row in rows:
-            rid = row.get('id')
-            if not rid:
-                continue
-            for fname in binary_fields:
-                if fname in row and row[fname]:
-                    row[fname] = record_field_uri(model, rid, fname)
+        records.check_field_access_rights('read', binary)
+        rows = records.read([name for name in fields if name not in binary] or ['id'])
+        sized = records.with_context(bin_size=True)
+        for row, record in zip(rows, sized, strict=True):
+            for name in binary:
+                row[name] = (
+                    record[name] and record_field_uri(records._name, record.id, name)
+                ) or False
         return rows
 
     # ----------------------------------------------------------
@@ -65,7 +63,9 @@ class MCPMixin(models.AbstractModel):
     def _mcp_search_count(self, model, domain=None):
         return {
             'count': self._resolve_model(model).search_count(
-                self._coerce_json_value(domain) or [],
+                self._coerce_json_value(
+                    self._mcp_apply_domain(model, domain),
+                ) or [],
             ),
         }
 
@@ -74,8 +74,8 @@ class MCPMixin(models.AbstractModel):
         name='search_read',
         description=(
             "Search for records matching a domain filter and return their "
-            "field values. Always specify 'fields' to avoid returning all "
-            "fields (which can be slow). Use 'limit' to paginate large "
+            "field values. Without 'fields' only id and display_name come "
+            "back; name the fields you need. Use 'limit' to paginate large "
             "result sets."
         ),
         input_schema={
@@ -83,7 +83,9 @@ class MCPMixin(models.AbstractModel):
             'properties': {
                 'model': model_field(),
                 'domain': domain_field(),
-                'fields': fields_field(),
+                'fields': fields_field(
+                    extra_note='Binary fields come back as a resource URI, or false when empty.',
+                ),
                 'limit': {
                     'type': 'integer',
                     'default': 80,
@@ -119,14 +121,15 @@ class MCPMixin(models.AbstractModel):
         offset=0,
         order=None,
     ):
-        rows = self._resolve_model(model).search_read(
-            self._coerce_json_value(domain) or [],
-            fields=fields,
+        records = self._resolve_model(model).search(
+            self._coerce_json_value(
+                self._mcp_apply_domain(model, domain),
+            ) or [],
             limit=limit,
             offset=offset,
             order=order,
         )
-        return self._swap_binary_to_uri(model, rows)
+        return self._mcp_read(records, fields or ['display_name'])
 
     @api.model
     @mcp_tool(
@@ -134,15 +137,18 @@ class MCPMixin(models.AbstractModel):
         description=(
             'Read specific records by their database IDs. Use this when '
             'you already know the exact record IDs (e.g. from a previous '
-            'search_read result or from a Many2one field value). Returns '
-            'all requested fields for each ID.'
+            'search_read result or from a Many2one field value). Without '
+            '"fields" it returns the stored base fields of each record; name '
+            'computed, one2many or many2many fields to get them.'
         ),
         input_schema={
             'type': 'object',
             'properties': {
                 'model': model_field(),
                 'ids': ids_field('read'),
-                'fields': fields_field(),
+                'fields': fields_field(
+                    extra_note='Binary fields come back as a resource URI, or false when empty.',
+                ),
                 'context': context_field(),
             },
             'required': ['model', 'ids'],
@@ -153,8 +159,16 @@ class MCPMixin(models.AbstractModel):
         target_ids = self._normalize_ids(ids)
         if not target_ids:
             raise UserError(_('No record IDs provided'))
-        rows = self._resolve_model(model).browse(target_ids).read(fields)
-        return self._swap_binary_to_uri(model, rows)
+        self._mcp_assert_records_allowed(model, target_ids)
+        records = self._resolve_model(model).browse(target_ids)
+        return self._mcp_read(
+            records,
+            fields or [
+                name for name in records.fields_get(attributes=())
+                if (field := records._fields[name]).prefetch is True
+                and field.type not in ('one2many', 'many2many')
+            ],
+        )
 
     @api.model
     @mcp_tool(
@@ -233,7 +247,9 @@ class MCPMixin(models.AbstractModel):
         if '__count' not in aggregates:
             aggregates.append('__count')
         rows = target._read_group(
-            self._coerce_json_value(domain) or [],
+            self._coerce_json_value(
+                self._mcp_apply_domain(model, domain),
+            ) or [],
             groupby=groupby,
             aggregates=aggregates,
             limit=limit,

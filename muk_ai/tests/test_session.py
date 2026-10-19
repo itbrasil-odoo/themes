@@ -48,8 +48,8 @@ class TestAiSession(AITestCommon):
     ) -> AbstractContextManager[MagicMock]:
         """Patch the provider to pop one payload per LLM request.
 
-        :param captured: When given, receives the inputs, tool schema and
-            built-in tool flags of every request.
+        :param captured: When given, receives the inputs, tool schema,
+            built-in tool flags and effort tier of every request.
         :raise AssertionError: When more requests are made than payloads given.
         """
         remaining = list(payloads)
@@ -69,12 +69,10 @@ class TestAiSession(AITestCommon):
                         'inputs': inputs,
                         'tools_schema': tools_schema,
                         'enable_web_search': kwargs.get('enable_web_search', False),
-                        'enable_image_generation': kwargs.get(
-                            'enable_image_generation', False
-                        ),
                         'enable_code_interpreter': kwargs.get(
                             'enable_code_interpreter', False
                         ),
+                        'reasoning_effort': kwargs.get('reasoning_effort'),
                     }
                 )
             if not remaining:
@@ -665,7 +663,7 @@ class TestAiSession(AITestCommon):
                 'output_rate': 2.0,
             }
         )
-        self.provider.default_model_id = fallback.id
+        self.provider.default_chat_model_id = fallback
         session = self.env['muk_ai.session'].create({'name': 'No override'})
         session.agent_id = False
         self.assertEqual(session._effective_model(), fallback.technical_name)
@@ -736,8 +734,7 @@ class TestAiSession(AITestCommon):
         agent = self.env['muk_ai.agent'].create(
             {
                 'name': 'Power',
-                'enable_web_search': True,
-                'enable_image_generation': True,
+                'web_search': 'auto',
                 'enable_code_interpreter': True,
             }
         )
@@ -752,7 +749,6 @@ class TestAiSession(AITestCommon):
             session.start('go')
         self.assertTrue(captured)
         self.assertTrue(captured[0]['enable_web_search'])
-        self.assertTrue(captured[0]['enable_image_generation'])
         self.assertTrue(captured[0]['enable_code_interpreter'])
 
     def test_agent_capability_flags_default_off(self):
@@ -768,7 +764,6 @@ class TestAiSession(AITestCommon):
             session.start('go')
         self.assertTrue(captured)
         self.assertFalse(captured[0]['enable_web_search'])
-        self.assertFalse(captured[0]['enable_image_generation'])
         self.assertFalse(captured[0]['enable_code_interpreter'])
 
     # ----------------------------------------------------------
@@ -794,6 +789,31 @@ class TestAiSession(AITestCommon):
             session.send_message('again')
         self.assertEqual(session.last_input_tokens, 120)
         self.assertEqual(session.total_input_tokens, 162)
+
+    def test_turn_usage_counts_only_the_latest_turn(self):
+        session = self.env['muk_ai.session'].create({'name': 'turn meter'})
+
+        def make_payload(tokens: int, **usage: bool) -> dict:
+            """Return a finished round that used ``tokens`` input tokens."""
+            return {
+                'text': 'ok',
+                'tool_calls': [],
+                'carry_inputs': [],
+                'usage': {'input_tokens': tokens, 'output_tokens': 3, **usage},
+            }
+
+        with self._patch_provider([make_payload(42)]):
+            session.start('hi')
+        self.assertNotIn('truncated', session.turn_usage)
+        with self._patch_provider([make_payload(120, truncated=True)]):
+            session.send_message('again')
+        self.assertEqual(session.turn_usage['input_tokens'], 120)
+        self.assertEqual(session.turn_usage['output_tokens'], 3)
+        self.assertEqual(session.turn_usage['iterations'], 1)
+        self.assertTrue(session.turn_usage['truncated'])
+        self.assertEqual(session.get_snapshot()['turn_usage'], session.turn_usage)
+        session.clear()
+        self.assertFalse(session.turn_usage)
 
     def test_snapshot_exposes_context_window(self):
         model = self.env['muk_ai.model'].create(
@@ -1408,14 +1428,16 @@ class TestAiSession(AITestCommon):
         ]
         self.assertEqual(len(counted), 1)
 
-    def test_request_inputs_strip_internal_keys(self):
+    def test_request_inputs_keep_internal_keys_for_the_adapters(self):
         session = self.env['muk_ai.session'].create({'name': 'strip'})
         session.conversation = [
             {'role': 'user', 'content': 'hi'},
             {'role': 'user', 'content': 'files', '_answer_entry': True},
         ]
-        for item in session._build_request_inputs():
-            self.assertNotIn('_answer_entry', item)
+        inputs = session._build_request_inputs()
+        self.assertTrue(any(item.get('_answer_entry') for item in inputs))
+        wired = self.provider._get_client()._wire_items(inputs)
+        self.assertFalse(any('_answer_entry' in item for item in wired))
 
     def test_fork_at_event_creates_independent_session(self):
         session = self.env['muk_ai.session'].create({'name': 'forkable'})
@@ -1783,6 +1805,89 @@ class TestAiSession(AITestCommon):
             session.set_approval_mode('banana')
 
     # ----------------------------------------------------------
+    # Tests: reasoning effort override
+    # ----------------------------------------------------------
+
+    def _thinking_session(self, agent_effort: str | bool = False) -> models.BaseModel:
+        """Create a session on an agent whose model offers three effort tiers."""
+        model = self._create_model(
+            'test-thinker', reasoning_efforts=['low', 'medium', 'high']
+        )
+        agent = self.env['muk_ai.agent'].create(
+            {
+                'name': 'Thinker',
+                'model_id': model.id,
+                'reasoning_effort': agent_effort,
+            }
+        )
+        return self.env['muk_ai.session'].create(
+            {
+                'name': 'effort',
+                'agent_id': agent.id,
+            }
+        )
+
+    def test_set_reasoning_effort_overrides_the_agent_default(self):
+        session = self._thinking_session(agent_effort='low')
+        self.assertEqual(session._effective_reasoning_effort(), 'low')
+        snapshot = session.set_reasoning_effort('high')
+        self.assertEqual(session._effective_reasoning_effort(), 'high')
+        self.assertEqual(snapshot['override_reasoning_effort'], 'high')
+        self.assertEqual(snapshot['effective_reasoning_effort'], 'high')
+        self.assertEqual(snapshot['agent_reasoning_effort'], 'low')
+        snapshot = session.set_reasoning_effort(None)
+        self.assertFalse(session.override_reasoning_effort)
+        self.assertEqual(session._effective_reasoning_effort(), 'low')
+        self.assertFalse(snapshot['override_reasoning_effort'])
+        self.assertEqual(snapshot['effective_reasoning_effort'], 'low')
+
+    def test_set_reasoning_effort_rejects_a_tier_the_model_lacks(self):
+        session = self._thinking_session()
+        with self.assertRaises(UserError):
+            session.set_reasoning_effort('max')
+
+    def test_reasoning_effort_options_follow_the_resolved_model(self):
+        session = self._thinking_session()
+        self.assertEqual(session._reasoning_effort_options(), ['low', 'medium', 'high'])
+        session.agent_id.model_id.reasoning_efforts = []
+        self.assertEqual(session._reasoning_effort_options(), [])
+
+    def test_reasoning_effort_override_ignored_once_unsupported(self):
+        session = self._thinking_session(agent_effort='low')
+        session.set_reasoning_effort('high')
+        session.agent_id.model_id.reasoning_efforts = ['low', 'medium']
+        self.assertEqual(session.override_reasoning_effort, 'high')
+        self.assertEqual(session._effective_reasoning_effort(), 'low')
+        self.assertEqual(session._state_metrics()['effective_reasoning_effort'], 'low')
+
+    def test_reasoning_effort_fields_are_readable_by_the_client(self):
+        session = self._thinking_session(agent_effort='low')
+        session.set_reasoning_effort('high')
+        [values] = session.read(
+            [
+                'override_reasoning_effort',
+                'effective_reasoning_effort',
+                'reasoning_effort_options',
+                'agent_reasoning_effort',
+            ]
+        )
+        self.assertEqual(values['override_reasoning_effort'], 'high')
+        self.assertEqual(values['effective_reasoning_effort'], 'high')
+        self.assertEqual(values['reasoning_effort_options'], ['low', 'medium', 'high'])
+        self.assertEqual(values['agent_reasoning_effort'], 'low')
+
+    def test_reasoning_effort_override_reaches_the_request(self):
+        session = self._thinking_session(agent_effort='low')
+        captured = []
+        with self._patch_provider([self._text_payload('hi')], captured):
+            session.send_message('before')
+        self.assertEqual(captured[0]['reasoning_effort'], 'low')
+        session.set_reasoning_effort('high')
+        with self._patch_provider([self._text_payload('hi')], captured):
+            session.send_message('after')
+        self.assertEqual(captured[1]['reasoning_effort'], 'high')
+
+    # ----------------------------------------------------------
     # Tests: send_message routing
     # ----------------------------------------------------------
 
@@ -2004,7 +2109,7 @@ class TestAiSession(AITestCommon):
                 session_module.AISession._commit_safe(fake_session)
 
         self.assertEqual(fake_cr.rollback.call_count, 1)
-        fake_session.invalidate_recordset.assert_called_once()
+        fake_env.invalidate_all.assert_called_once()
 
     # ----------------------------------------------------------
     # Tests: tool round resume locking
@@ -2195,6 +2300,19 @@ class TestAiSession(AITestCommon):
         self.assertEqual(outputs[0]['call_id'], 'ask_c2')
         self.assertIn('ask_user_already_pending', outputs[0]['output'])
 
+    def test_process_tool_round_refuses_a_tool_outside_the_filter(self):
+        agent = self.env['muk_ai.agent'].create(
+            {'name': 'Narrow', 'tool_filter': ['search_count']}
+        )
+        session = self.env['muk_ai.session'].create(
+            {'name': 'narrow', 'agent_id': agent.id}
+        )
+        outputs = []
+        session._process_tool_round(
+            [{'call_id': 'c1', 'name': 'read_records', 'arguments': {}}], outputs, 0
+        )
+        self.assertIn('tool_not_offered', outputs[0]['output'])
+
     # ----------------------------------------------------------
     # Tests: turn limit warnings and cost budget
     # ----------------------------------------------------------
@@ -2261,3 +2379,68 @@ class TestAiSession(AITestCommon):
             self.session.start('hello again')
         self.assertEqual(self.session.state, 'done')
         self.assertLess(self.session.turn_cost_spent, 0.5)
+
+    def test_a_private_event_reaches_only_the_person_it_is_about(self):
+        # Some lines carry facts about one person rather than something said
+        # in the chat; sharing the chat must not hand those over with it.
+        reader = new_test_user(self.env, login='event-reader', groups='base.group_user')
+        session = self.env['muk_ai.session'].create({'name': 'chat'})
+        session._append_event({'kind': 'text', 'content': 'said out loud'})
+        session._append_event(
+            {'kind': 'note', 'content': 'about me', 'private_user_id': self.env.uid}
+        )
+        session.share_user_ids = [(4, reader.id)]
+        kinds = [event['kind'] for event in session.fetch_events()['events']]
+        self.assertEqual(kinds, ['text', 'note'])
+        theirs = session.with_user(reader).fetch_events()['events']
+        self.assertEqual([event['kind'] for event in theirs], ['text'])
+
+    def test_a_private_event_is_not_inherited_by_the_next_owner(self):
+        session = self.env['muk_ai.session'].create({'name': 'chat'})
+        session._append_event(
+            {'kind': 'note', 'content': 'about me', 'private_user_id': self.env.uid}
+        )
+        target = new_test_user(self.env, login='event-heir', groups='base.group_user')
+        session.action_handover(target.id)
+        theirs = session.with_user(target).fetch_events()['events']
+        self.assertEqual(theirs, [])
+
+    def test_whether_a_chat_may_be_steered_is_the_rules_answer_not_the_owner_s(self):
+        reader = new_test_user(self.env, login='steer-reader', groups='base.group_user')
+        session = self.env['muk_ai.session'].create({'name': 'chat'})
+        self.assertTrue(session.can_write)
+        session.share_user_ids = [(4, reader.id)]
+        self.assertFalse(session.with_user(reader).can_write)
+        self.assertTrue(session.with_user(reader).get_snapshot()['can_write'] is False)
+
+    def test_a_fork_keeps_a_private_event_private(self):
+        heir = new_test_user(self.env, login='fork-heir', groups='base.group_user')
+        session = self.env['muk_ai.session'].create({'name': 'chat'})
+        session._append_event({'kind': 'text', 'content': 'said out loud'})
+        last = session._append_event(
+            {'kind': 'note', 'content': 'about me', 'private_user_id': self.env.uid}
+        )
+        fork = self.env['muk_ai.session'].browse(session.fork_at_event(last.id))
+        fork.action_handover(heir.id)
+        kinds = [
+            event['kind'] for event in fork.with_user(heir).fetch_events()['events']
+        ]
+        self.assertEqual(kinds, ['text'])
+
+    def test_handing_over_a_finished_chat_does_not_say_it_just_finished(self):
+        heir = new_test_user(self.env, login='quiet-heir', groups='base.group_user')
+        session = self.env['muk_ai.session'].create({'name': 'chat', 'state': 'done'})
+        with patch.object(
+            type(session), '_notification_summary', autospec=True
+        ) as summarised:
+            session.action_handover(heir.id)
+        self.assertFalse(summarised.called)
+
+    def test_an_approval_granted_for_a_session_does_not_come_with_it(self):
+        # Approving "for this session" is a person's consent to a risk, and
+        # the person is changing.
+        heir = new_test_user(self.env, login='consent-heir', groups='base.group_user')
+        session = self.env['muk_ai.session'].create({'name': 'chat'})
+        session.approved_signatures = ['unlink:res.partner']
+        session.action_handover(heir.id)
+        self.assertFalse(session.approved_signatures)

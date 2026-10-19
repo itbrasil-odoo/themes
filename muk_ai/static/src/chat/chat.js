@@ -5,6 +5,7 @@ import {
     onPatched,
     onWillStart,
     onWillUnmount,
+    useEffect,
     useRef,
     useState,
 } from '@odoo/owl';
@@ -26,9 +27,10 @@ import { AIChatShareUsers } from '@muk_ai/chat/share/share_users';
 import { useNotificationBadge } from '@muk_ai/core/notification_badge';
 import {
     approvalPill,
-    costTooltip,
-    formatCost,
-    formatRelativeTime,
+    chatLists,
+    effortPill,
+    extraPills,
+    selectPill,
     formatTimestamp,
     inputPlaceholder,
     statusBadgeClass,
@@ -37,6 +39,7 @@ import {
 } from '@muk_ai/chat/utils';
 
 import { ChatComposer } from '@muk_ai/chat/composer/chat_composer';
+import { isToolBlockHidden, turnRendererFor } from '@muk_ai/chat/session/turns';
 import { useAiSession } from '@muk_ai/chat/session/use_ai_session';
 import {
     onScrollUpNearTop,
@@ -76,6 +79,7 @@ const SIDEBAR_SESSION_FIELDS = [
     'id',
     'name',
     'state',
+    'awaiting_user',
     'create_date',
     'space_id',
     'share_user_ids',
@@ -168,11 +172,9 @@ export class AIChat extends Component {
             scrollTarget: null,
             askViews: {},
             sourcesExpanded: {},
-            resumeTick: 0,
         });
         this._sessionsSearchSeq = 0;
         this._sessionsSearchTimer = null;
-        this._resumeTickInterval = null;
         this.rootRef = useRef('root');
         const {
             scrollRef,
@@ -236,28 +238,24 @@ export class AIChat extends Component {
         onMounted(() => {
             this._installImageClickHandler();
             this._installRootPasteHandler();
-            this._resumeTickInterval = window.setInterval(() => {
-                if (
-                    this.session.state.status === 'waiting_schedule' &&
-                    this.session.state.resumeAt
-                ) {
-                    this.state.resumeTick += 1;
-                }
-            }, 5000);
         });
         onPatched(() => {
             this._handleScrollTarget();
         });
+        useEffect(
+            (focus) => {
+                if (focus && this.state.artifactsHidden) {
+                    this.openArtifacts();
+                }
+            },
+            () => [this.session.state.artifactsFocus],
+        );
         onWillUnmount(() => {
             this._disconnectUserBus();
             this._uninstallRootPasteHandler();
             if (this._sessionsSearchTimer !== null) {
                 window.clearTimeout(this._sessionsSearchTimer);
                 this._sessionsSearchTimer = null;
-            }
-            if (this._resumeTickInterval !== null) {
-                window.clearInterval(this._resumeTickInterval);
-                this._resumeTickInterval = null;
             }
         });
     }
@@ -369,7 +367,7 @@ export class AIChat extends Component {
      */
     get ownSessionsDomain() {
         return [
-            ['user_id', '=', user.userId],
+            ...chatLists.domain,
             ...(this.state.generalDomain ?? [['space_id', '=', false]]),
         ];
     }
@@ -379,10 +377,7 @@ export class AIChat extends Component {
      * @returns {Array} a search domain on `muk_ai.session`
      */
     sessionSearchDomain(query) {
-        return [
-            ['user_id', '=', user.userId],
-            ['name', 'ilike', query],
-        ];
+        return [...chatLists.domain, ['name', 'ilike', query]];
     }
     async _loadSessions() {
         if (this.state.sessionsSearchMode) {
@@ -573,10 +568,24 @@ export class AIChat extends Component {
         await this.orm.write('muk_ai.space', [spaceId], values);
         await this._loadSpaces();
     }
+    /**
+     * Mark the unread chats of the given spaces as read, and widen the
+     * branches that showed only unread chats.
+     * @param {number[]} spaceIds
+     */
+    async onSpaceMarkRead(spaceIds) {
+        this.badge.apply(await this.orm.call('muk_ai.space', 'mark_read', [spaceIds]));
+        for (const spaceId of spaceIds) {
+            if (this.state.spaceSessions[spaceId]?.unreadOnly) {
+                await this._loadSpaceSessions(spaceId, false, false);
+            }
+        }
+    }
     async onSpaceDelete(spaceId) {
         await this.orm.unlink('muk_ai.space', [spaceId]);
         delete this.state.spaceSessions[spaceId];
-        await Promise.all([this._loadSpaces(), this._loadSessions()]);
+        await this._loadSpaces();
+        await this._loadSessions();
     }
     /**
      * Persist the new order of the personal spaces after a drag.
@@ -639,9 +648,15 @@ export class AIChat extends Component {
         this.state.sidebarHidden = !this.state.sidebarHidden;
     }
     toggleArtifacts() {
-        const willOpen = this.state.artifactsHidden;
-        this.state.artifactsHidden = !this.state.artifactsHidden;
-        if (willOpen && typeof window !== 'undefined' && window.innerWidth < 1200) {
+        if (this.state.artifactsHidden) {
+            this.openArtifacts();
+            return;
+        }
+        this.state.artifactsHidden = true;
+    }
+    openArtifacts() {
+        this.state.artifactsHidden = false;
+        if (typeof window !== 'undefined' && window.innerWidth < 1200) {
             this.state.sidebarHidden = true;
         }
     }
@@ -912,6 +927,7 @@ export class AIChat extends Component {
         }
         const updated = { ...this.state.sessions[idx] };
         if (payload.state) updated.state = payload.state;
+        if ('awaiting_user' in payload) updated.awaiting_user = payload.awaiting_user;
         if (payload.name) updated.name = payload.name;
         this.state.sessions = [
             ...this.state.sessions.slice(0, idx),
@@ -920,7 +936,6 @@ export class AIChat extends Component {
         ];
         if (payload.session_id === this.session.state.sessionId) {
             if (payload.name) this.session.state.name = payload.name;
-            if (payload.state) this.session.state.status = payload.state;
             if (typeof payload.iteration_count === 'number') {
                 this.session.state.iterationCount = payload.iteration_count;
             }
@@ -935,6 +950,12 @@ export class AIChat extends Component {
             }
             if (typeof payload.context_window === 'number') {
                 this.session.state.contextWindow = payload.context_window;
+            }
+            if (typeof payload.total_cost === 'number') {
+                this.session.state.totalCost = payload.total_cost;
+            }
+            if (payload.turn_usage) {
+                this.session.state.turnUsage = payload.turn_usage;
             }
         }
     }
@@ -976,6 +997,9 @@ export class AIChat extends Component {
     get renderedTurns() {
         return this.session.renderedTurns();
     }
+    turnRenderer(turn) {
+        return turnRendererFor(turn);
+    }
     renderMarkdown(text) {
         return this.session.renderMarkdown(text);
     }
@@ -986,14 +1010,7 @@ export class AIChat extends Component {
         return this.session.isToolExpanded(callId);
     }
     isToolHiddenForAsk(block, turn) {
-        if (block.result !== null && block.result !== undefined) {
-            return false;
-        }
-        const pending = this.session.state.pendingAsk;
-        if (pending && pending.call_id === block.callId) {
-            return true;
-        }
-        return turn.blocks.some((b) => b.type === 'ask' && b.callId === block.callId);
+        return isToolBlockHidden(block, turn, this.session.state.pendingAsk);
     }
     isToolStreaming(block) {
         if (block.result !== null && block.result !== undefined) {
@@ -1036,46 +1053,6 @@ export class AIChat extends Component {
     statusIcon(status) {
         return statusIcon(status);
     }
-    get resumeRelativeText() {
-        void this.state.resumeTick;
-        const relative = formatRelativeTime(this.session.state.resumeAt);
-        if (!relative) {
-            return '';
-        }
-        return _t('resumes in %s', relative);
-    }
-    get contextPercent() {
-        const window = this.session.state.contextWindow;
-        if (!window) {
-            return 0;
-        }
-        return Math.max(
-            0,
-            Math.min(
-                100,
-                Math.round((this.session.state.lastInputTokens / window) * 100),
-            ),
-        );
-    }
-    get contextClass() {
-        const pct = this.contextPercent;
-        if (pct >= 90) return 'mk_context_red';
-        if (pct >= 70) return 'mk_context_amber';
-        return 'mk_context_green';
-    }
-    get costPill() {
-        const cost = this.session.state.totalCost;
-        return { label: formatCost(cost), tooltip: costTooltip(cost) };
-    }
-    get contextTooltip() {
-        const tokens = this.session.state.lastInputTokens || 0;
-        const window = this.session.state.contextWindow || 0;
-        const fmt = new Intl.NumberFormat();
-        return _t('Context window: %(tokens)s / %(window)s tokens', {
-            tokens: fmt.format(tokens),
-            window: fmt.format(window),
-        });
-    }
     askArgsText(block) {
         return askArgsText(block);
     }
@@ -1101,7 +1078,20 @@ export class AIChat extends Component {
         return viewContextTooltip(this.session.state.viewContext);
     }
     get approvalPill() {
-        return approvalPill(this.session.state);
+        return this.session.state.sessionId
+            ? approvalPill(this.session.state)
+            : undefined;
+    }
+    get effortPill() {
+        return this.session.state.sessionId
+            ? effortPill(this.session.state) || undefined
+            : undefined;
+    }
+    get extraPills() {
+        return this.session.state.sessionId ? extraPills(this.session.state) : [];
+    }
+    onSelectPill(key, value) {
+        selectPill(key, this.session, value);
     }
 }
 

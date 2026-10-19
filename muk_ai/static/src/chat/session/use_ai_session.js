@@ -2,6 +2,7 @@ import { markup, onWillUnmount, useEnv, useState } from '@odoo/owl';
 
 import { ConfirmationDialog } from '@web/core/confirmation_dialog/confirmation_dialog';
 import { _t } from '@web/core/l10n/translation';
+import { registry } from '@web/core/registry';
 import { user } from '@web/core/user';
 import { useService } from '@web/core/utils/hooks';
 import { SelectCreateDialog } from '@web/views/view_dialogs/select_create_dialog';
@@ -13,6 +14,14 @@ import { formatError } from '@muk_ai/chat/utils';
 import { buildRenderedTurns } from '@muk_ai/chat/session/turns';
 import { useOpenSession } from '@muk_ai/chat/session/open_sessions';
 import { useSessionChannel } from '@muk_ai/chat/session/session_channel';
+
+/**
+ * Session fields an addon needs in the client state, beyond the core's own.
+ *
+ * Each entry is `{field, apply}`: the field is read with the session, and
+ * `apply(state, record)` copies it in once the core fields have landed.
+ */
+export const sessionStateFields = registry.category('muk_ai.session_state_fields');
 
 export const SESSION_READ_FIELDS = [
     'id',
@@ -26,6 +35,7 @@ export const SESSION_READ_FIELDS = [
     'total_input_tokens',
     'total_output_tokens',
     'last_input_tokens',
+    'turn_usage',
     'context_window',
     'user_id',
     'share_user_ids',
@@ -33,7 +43,12 @@ export const SESSION_READ_FIELDS = [
     'total_cost',
     'override_approval_mode',
     'effective_approval_mode',
+    'override_reasoning_effort',
+    'effective_reasoning_effort',
+    'reasoning_effort_options',
+    'agent_reasoning_effort',
     'pending_user_messages',
+    'can_write',
 ];
 
 export const SLASH_COMMANDS = [
@@ -65,6 +80,43 @@ export const SLASH_COMMANDS = [
     },
 ];
 
+export const sessionSlashCommands = registry.category('muk_ai.slash_commands');
+
+/**
+ * Return every slash command the composer should offer, core and addon.
+ * @returns {Array} `{name, hint}` entries
+ */
+export function allSlashCommands() {
+    return [...SLASH_COMMANDS, ...sessionSlashCommands.getAll()];
+}
+
+/**
+ * Build a send route answering slash commands with a single session call.
+ *
+ * The core's slash dispatcher is a fixed chain an addon cannot extend, so an
+ * addon command rides the send routes instead.
+ * @param {object} commands map of `/command` to the session method it calls
+ * @returns {Function} a route for `sessionSendRoutes`
+ */
+export function commandRoute(commands) {
+    return async ({ state, orm, appendCommand }, text) => {
+        const [name, ...rest] = (text || '').trim().split(/\s+/);
+        // The core's parser lowercases too, so /Remember is the same command.
+        const method = commands[name.toLowerCase()];
+        if (!method) {
+            return false;
+        }
+        if (state.sessionId) {
+            const summary = await orm.call('muk_ai.session', method, [
+                state.sessionId,
+                rest.join(' '),
+            ]);
+            appendCommand(name, { summary });
+        }
+        return true;
+    };
+}
+
 /**
  * Session actions that steer the chat rather than read it. They are all
  * neutralised at once on a read-only chat, so no surface and no extension
@@ -82,6 +134,8 @@ const WRITE_ACTIONS = [
     'runUnpin',
     'setApprovalMode',
     'cycleApprovalMode',
+    'setReasoningEffort',
+    'setToolSource',
     'approveTool',
     'approveForSession',
     'rejectTool',
@@ -92,6 +146,25 @@ const WRITE_ACTIONS = [
     'runForkAtEvent',
     'openHandoverPicker',
 ];
+
+/**
+ * Registry of live-update handlers for bus event types the core does not
+ * handle, keyed by event type. Each handler has the signature
+ * `(payload, session) => void`, where `session` exposes the reactive
+ * `state`, `updateEvent(eventId, kind, update)` rewriting one logged event
+ * in place through `update(entry) => entry`, `bumpStreamActivity()` and
+ * `requestScroll()`.
+ */
+export const sessionEventHandlers = registry.category('muk_ai.session_event_handlers');
+
+/**
+ * Routes the composer's send is offered to first, as
+ * `({state, orm, appendCommand}, text) => Promise<boolean>`.
+ *
+ * A route returning true has taken the message. It lives on the session so
+ * that every way of sending goes through it, voice mode included.
+ */
+export const sessionSendRoutes = registry.category('muk_ai.session_send_routes');
 
 const COMPACT_WARN_RATIO = 0.65;
 const COMPACT_AUTO_RATIO = 0.8;
@@ -130,6 +203,7 @@ export function useAiSession(options = {}) {
         outputTokens: 0,
         totalCost: 0,
         lastInputTokens: 0,
+        turnUsage: {},
         contextWindow: 0,
         expandedTools: {},
         streamingText: '',
@@ -148,9 +222,14 @@ export function useAiSession(options = {}) {
         viewContext: null,
         approvalMode: false,
         effectiveApprovalMode: 'ask',
+        reasoningEffort: false,
+        effectiveReasoningEffort: false,
+        reasoningEffortOptions: [],
+        agentReasoningEffort: false,
+        toolSources: [],
         pendingMessages: [],
         streamIdle: false,
-        resumeAt: '',
+        artifactsFocus: null,
     });
     let eventKeys = new Set();
     let onScrollCallback = null;
@@ -338,14 +417,6 @@ export function useAiSession(options = {}) {
             if (typeof event.payload.total_cost === 'number') {
                 state.totalCost = event.payload.total_cost;
             }
-            if (event.payload.resume_at !== undefined) {
-                state.resumeAt = normalizeResumeAt(event.payload.resume_at);
-            } else if (
-                event.payload.state &&
-                event.payload.state !== 'waiting_schedule'
-            ) {
-                state.resumeAt = '';
-            }
         } else if (event.type === 'rename') {
             if (event.payload && event.payload.name) {
                 state.name = event.payload.name;
@@ -356,6 +427,14 @@ export function useAiSession(options = {}) {
             state.agentName = payload.agent_name || '';
             if (payload.effective_approval_mode) {
                 state.effectiveApprovalMode = payload.effective_approval_mode;
+            }
+            if (payload.reasoning_effort_options) {
+                state.effectiveReasoningEffort = payload.effective_reasoning_effort;
+                state.reasoningEffortOptions = payload.reasoning_effort_options;
+                state.agentReasoningEffort = payload.agent_reasoning_effort;
+            }
+            if (payload.tool_sources) {
+                state.toolSources = payload.tool_sources;
             }
         } else if (event.type === 'ui_action') {
             handleUiAction(event.payload);
@@ -369,19 +448,10 @@ export function useAiSession(options = {}) {
             if (eventId == null || !delta) {
                 return;
             }
-            state.events = state.events.map((entry) => {
-                if (
-                    entry &&
-                    entry.event_id === eventId &&
-                    entry.kind === 'compact_progress'
-                ) {
-                    return {
-                        ...entry,
-                        streamed_text: (entry.streamed_text || '') + delta,
-                    };
-                }
-                return entry;
-            });
+            updateEvent(eventId, 'compact_progress', (entry) => ({
+                ...entry,
+                streamed_text: (entry.streamed_text || '') + delta,
+            }));
             bumpStreamActivity();
             requestScroll();
         } else if (event.type === 'compact_update') {
@@ -390,18 +460,29 @@ export function useAiSession(options = {}) {
             if (eventId == null) {
                 return;
             }
-            state.events = state.events.map((entry) => {
-                if (
-                    entry &&
-                    entry.event_id === eventId &&
-                    entry.kind === 'compact_progress'
-                ) {
-                    return { ...entry, ...patch };
-                }
-                return entry;
-            });
+            updateEvent(eventId, 'compact_progress', (entry) => ({
+                ...entry,
+                ...patch,
+            }));
             requestScroll();
+        } else {
+            const handle = sessionEventHandlers.get(event.type, null);
+            if (handle) {
+                handle(event.payload || {}, {
+                    state,
+                    updateEvent,
+                    bumpStreamActivity,
+                    requestScroll,
+                });
+            }
         }
+    }
+    function updateEvent(eventId, kind, update) {
+        state.events = state.events.map((entry) =>
+            entry && entry.event_id === eventId && entry.kind === kind
+                ? update(entry)
+                : entry,
+        );
     }
     async function handleUiAction(payload) {
         const action = payload && payload.action;
@@ -428,6 +509,15 @@ export function useAiSession(options = {}) {
         }
         chatWindow.open(state.sessionId);
     }
+    /**
+     * Load a session into the state, or clear it when it cannot be read.
+     * A session that is gone or not shared with this user falls back to the
+     * empty new-chat state: keeping its id and flagging the state read-only
+     * would advertise a missing session as one somebody shared, and leave
+     * the user with no composer.
+     * @param {number|null} sessionId
+     * @returns {Promise<object|null>} the loaded record, null when unusable
+     */
     async function load(sessionId) {
         const seq = ++loadSeq;
         const previousSessionId = state.sessionId;
@@ -449,7 +539,10 @@ export function useAiSession(options = {}) {
             const [result] = await orm.read(
                 'muk_ai.session',
                 [sessionId],
-                SESSION_READ_FIELDS,
+                [
+                    ...SESSION_READ_FIELDS,
+                    ...sessionStateFields.getAll().map((entry) => entry.field),
+                ],
             );
             record = result || null;
             if (record) {
@@ -469,28 +562,26 @@ export function useAiSession(options = {}) {
         }
         sessionNotification.markInactive(previousSessionId);
         clearStreamIdleTimer();
-        _resetSessionState(sessionId);
         if (pendingLoad === myLoad) {
             pendingLoad = null;
         }
-        if (loadError) {
-            state.readonly = true;
-            state.error = formatError(loadError);
+        if (loadError || !record) {
+            _resetSessionState(null);
             state.loading = false;
             return null;
         }
-        if (record) {
-            sessionNotification.markActive(sessionId);
-            applyRecord(record);
-            if (snapshot && snapshot.events !== undefined) {
-                state.events = snapshot.events || [];
-                state.oldestSequence = snapshot.oldest_sequence ?? null;
-                state.hasMoreOlder = !!snapshot.has_more_older;
-                rebuildEventKeys();
-            }
-            for (const buffered of myLoad.buffer) {
-                onBusEvent(buffered);
-            }
+        _resetSessionState(sessionId);
+        sessionNotification.markActive(sessionId);
+        applyRecord(record);
+        state.toolSources = snapshot?.tool_sources || [];
+        if (snapshot && snapshot.events !== undefined) {
+            state.events = snapshot.events || [];
+            state.oldestSequence = snapshot.oldest_sequence ?? null;
+            state.hasMoreOlder = !!snapshot.has_more_older;
+            rebuildEventKeys();
+        }
+        for (const buffered of myLoad.buffer) {
+            onBusEvent(buffered);
         }
         state.loading = false;
         return record;
@@ -503,6 +594,7 @@ export function useAiSession(options = {}) {
         state.readonly = !!sessionId;
         state.input = '';
         state.error = null;
+        state.toolSources = [];
         state.pendingAsk = null;
         state.events = [];
         state.oldestSequence = null;
@@ -513,7 +605,6 @@ export function useAiSession(options = {}) {
         state.streamingTools = [];
         state.pendingAttachments = [];
         state.streamIdle = false;
-        state.resumeAt = '';
         eventKeys = new Set();
     }
     function applySessionFields(payload) {
@@ -522,36 +613,33 @@ export function useAiSession(options = {}) {
         state.viewContext = payload.view_context || null;
         state.approvalMode = payload.override_approval_mode || false;
         state.effectiveApprovalMode = payload.effective_approval_mode || 'ask';
+        state.reasoningEffort = payload.override_reasoning_effort || false;
+        state.effectiveReasoningEffort = payload.effective_reasoning_effort || false;
+        state.reasoningEffortOptions = payload.reasoning_effort_options || [];
+        state.agentReasoningEffort = payload.agent_reasoning_effort || false;
+        if ('tool_sources' in payload) {
+            state.toolSources = payload.tool_sources || [];
+        }
         state.error = payload.error_message || null;
         state.iterationCount = payload.iteration_count || 0;
         state.inputTokens = payload.total_input_tokens || 0;
         state.outputTokens = payload.total_output_tokens || 0;
         state.lastInputTokens = payload.last_input_tokens || 0;
+        state.turnUsage = payload.turn_usage || {};
         state.pendingMessages = payload.pending_user_messages || [];
-        state.resumeAt = normalizeResumeAt(payload.resume_at);
         if (typeof payload.total_cost === 'number') {
             state.totalCost = payload.total_cost;
         }
         if (typeof payload.context_window === 'number') {
             state.contextWindow = payload.context_window;
         }
-    }
-    function normalizeResumeAt(value) {
-        if (!value) {
-            return '';
-        }
-        if (typeof value === 'string') {
-            return value;
-        }
-        if (value && typeof value === 'object' && value.isLuxonDateTime) {
-            try {
-                const utc = value.toUTC();
-                return utc.isValid ? utc.toISO() : '';
-            } catch {
-                return '';
+        for (const entry of sessionStateFields.getAll()) {
+            // Snapshots carry only the core's fields, so an addon's applier
+            // would read undefined and reset the state it is keeping.
+            if (entry.field in payload) {
+                entry.apply(state, payload);
             }
         }
-        return String(value);
     }
     function applyRecord(record) {
         applySessionFields(record);
@@ -569,7 +657,12 @@ export function useAiSession(options = {}) {
               : null;
         state.ownerName = Array.isArray(owner) ? owner[1] : '';
         state.shareIds = record.share_user_ids || [];
-        state.readonly = !!(state.ownerId && state.ownerId !== user.userId);
+        // The server's verdict, not a guess from ownership: a chat can be
+        // writable without being owned, as a subagent is after a handover.
+        state.readonly =
+            record.can_write === undefined
+                ? !!(state.ownerId && state.ownerId !== user.userId)
+                : !record.can_write;
         rebuildEventKeys();
     }
     function applySnapshot(snapshot) {
@@ -605,12 +698,33 @@ export function useAiSession(options = {}) {
             });
         }
         if (incomingEvents.length || state.status !== 'running') {
-            state.events = incomingEvents;
-            if (snapshot.oldest_sequence !== undefined) {
-                state.oldestSequence = snapshot.oldest_sequence ?? null;
-            }
-            if (snapshot.has_more_older !== undefined) {
-                state.hasMoreOlder = !!snapshot.has_more_older;
+            // A snapshot is a WINDOW over the newest events, never the whole
+            // transcript. Replacing with it makes the client shrink: on a
+            // tool-heavy turn the 100 newest events are all tool calls, so the
+            // question that started the turn drops off the screen mid-answer.
+            // Keep what we hold from before the window and let the window own
+            // its own range onward — truncation (clear, undo, fork) only ever
+            // removes NEWER events, so those stay correct too.
+            const oldest = snapshot.oldest_sequence ?? null;
+            const older =
+                oldest === null
+                    ? []
+                    : (state.events || []).filter(
+                          (entry) =>
+                              entry &&
+                              Number.isInteger(entry.sequence) &&
+                              entry.sequence < oldest,
+                      );
+            state.events = older.length
+                ? [...older, ...incomingEvents]
+                : incomingEvents;
+            if (!older.length) {
+                if (snapshot.oldest_sequence !== undefined) {
+                    state.oldestSequence = snapshot.oldest_sequence ?? null;
+                }
+                if (snapshot.has_more_older !== undefined) {
+                    state.hasMoreOlder = !!snapshot.has_more_older;
+                }
             }
         }
         const preserveStreaming =
@@ -700,8 +814,16 @@ export function useAiSession(options = {}) {
         return (
             state.status === 'running' ||
             state.status === 'compacting' ||
-            (state.status === 'waiting' && (state.pendingAsk || {}).kind === 'approval')
+            (state.status === 'waiting' && !!(state.pendingAsk || {}).queues_input)
         );
+    }
+    /**
+     * Ask the artifacts panel to open on a tab and single out one of its items.
+     * @param {string} tab artifact type id
+     * @param {number|string|null} [itemId] item to single out within the tab
+     */
+    function focusArtifact(tab, itemId = null) {
+        state.artifactsFocus = { tab, itemId };
     }
     function onInputChange(value) {
         state.input = value;
@@ -736,6 +858,18 @@ export function useAiSession(options = {}) {
     async function onSend() {
         if (!canSend()) {
             return;
+        }
+        for (const route of sessionSendRoutes.getAll()) {
+            if (
+                await route(
+                    { state, orm, appendCommand: appendLocalCommandLog },
+                    state.input,
+                )
+            ) {
+                state.input = '';
+                state.focusToken += 1;
+                return;
+            }
         }
         const slash = parseSlashCommand(state.input);
         if (slash) {
@@ -1049,6 +1183,40 @@ export function useAiSession(options = {}) {
             );
         }
     }
+    async function setToolSource(key, enabled) {
+        if (!state.sessionId) {
+            return;
+        }
+        try {
+            const snapshot = await orm.call('muk_ai.session', 'set_tool_source', [
+                state.sessionId,
+                key,
+                enabled,
+            ]);
+            applySnapshot(snapshot);
+        } catch (error) {
+            notification.add(_t('Failed to change the tools: %s', formatError(error)), {
+                type: 'danger',
+            });
+        }
+    }
+    async function setReasoningEffort(effort) {
+        if (!state.sessionId) {
+            return;
+        }
+        try {
+            const snapshot = await orm.call('muk_ai.session', 'set_reasoning_effort', [
+                state.sessionId,
+                effort || false,
+            ]);
+            applySnapshot(snapshot);
+        } catch (error) {
+            notification.add(
+                _t('Failed to set reasoning effort: %s', formatError(error)),
+                { type: 'danger' },
+            );
+        }
+    }
     function isAwaitingApproval() {
         return (
             state.status === 'waiting' && (state.pendingAsk || {}).kind === 'approval'
@@ -1143,7 +1311,9 @@ export function useAiSession(options = {}) {
         }
     }
     function _helpSummary() {
-        return SLASH_COMMANDS.map((c) => `**${c.name}** — ${c.hint}`).join('\n\n');
+        return allSlashCommands()
+            .map((c) => `**${c.name}** — ${c.hint}`)
+            .join('\n\n');
     }
     function appendLocalCommandLog(name, extra) {
         const entry = {
@@ -1508,8 +1678,24 @@ export function useAiSession(options = {}) {
         bus.unsubscribe('muk_ai.event', busHandler);
         clearStreamIdleTimer();
     });
+    /**
+     * Call a method on the session this surface is showing.
+     *
+     * An addon draws its pill or card outside this hook and still has to act
+     * on the chat it is drawn in.
+     * @param {string} method the method on ``muk_ai.session``
+     * @param {Array} [args] its arguments after the session id
+     * @returns {Promise<*>} whatever the method returned, null without a session
+     */
+    async function callSession(method, args = []) {
+        if (!state.sessionId) {
+            return null;
+        }
+        return orm.call('muk_ai.session', method, [state.sessionId, ...args]);
+    }
     const api = {
         state,
+        callSession,
         load,
         loadMoreEvents,
         applySnapshot,
@@ -1535,10 +1721,13 @@ export function useAiSession(options = {}) {
         canAttach,
         canStop,
         isQueueing,
+        focusArtifact,
         cancelQueued,
         runUnpin,
         setApprovalMode,
         cycleApprovalMode,
+        setReasoningEffort,
+        setToolSource,
         openPinnedContext,
         approveTool,
         approveForSession,
@@ -1555,4 +1744,18 @@ export function useAiSession(options = {}) {
         api[name] = (...args) => (state.readonly ? undefined : action(...args));
     }
     return api;
+}
+
+/**
+ * Observe a session handed down as a prop through this component's own proxy.
+ *
+ * OWL re-renders a subcomponent only when a prop changes identity, and the
+ * `session` object is the same one on every parent render. Reading the state
+ * through the component's own proxy subscribes it to the keys it uses, so a
+ * card driven by the event log follows the session it is shown in.
+ * @param {object} session the session api received as a prop
+ * @returns {object} the same api, reading state through this component's proxy
+ */
+export function useSessionState(session) {
+    return Object.assign(Object.create(session), { state: useState(session.state) });
 }

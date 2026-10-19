@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from odoo import models
-from odoo.exceptions import AccessError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests.common import new_test_user
 
 from odoo.addons.muk_ai.models.session import AISession
@@ -213,6 +213,27 @@ class TestSpace(AITestCommon):
         with self.assertRaises(ValidationError):
             self._space('Broken', user_id=False, domain="[('nope_no_field', '=', 1)]")
 
+    def test_mark_read_clears_the_own_unread_chats_of_the_spaces(self):
+        filed = self._space('Q3 Budget')
+        system = self._space(
+            'By name', user_id=False, domain="[('name', '=', 'Collected')]"
+        )
+        in_filed = self._session('Filed', space_id=filed.id, notification_unread=True)
+        collected = self._session('Collected', notification_unread=True)
+        elsewhere = self._session('Elsewhere', notification_unread=True)
+        other = new_test_user(self.env, login='space_reader')
+        theirs = self._session('Collected', user_id=other.id, notification_unread=True)
+        badge = (filed | system).mark_read()
+        self.assertEqual(
+            [
+                session.notification_unread
+                for session in (in_filed, collected, elsewhere, theirs)
+            ],
+            [False, False, True, True],
+        )
+        self.assertIn(elsewhere.id, badge['session_ids'])
+        self.assertNotIn(collected.id, badge['session_ids'])
+
     def test_reorder_stores_the_given_order(self):
         first = self._space('First')
         second = self._space('Second')
@@ -395,3 +416,53 @@ class TestSpace(AITestCommon):
             if row['id'] == space.id
         )
         self.assertEqual(entry['instructions'], 'Answer in German.')
+
+    def test_a_system_space_can_be_pinned(self):
+        space = self._space(
+            'Shared', user_id=False, domain="[('id', '>', 0)]", pinned=True
+        )
+        self.assertTrue(space.pinned)
+
+    def test_pinning_a_personal_space_is_refused(self):
+        with self.assertRaises(ValidationError):
+            self._space('Q3 Budget', pinned=True)
+
+    def test_a_pinned_space_losing_its_domain_is_refused(self):
+        space = self._space(
+            'Shared', user_id=False, domain="[('id', '>', 0)]", pinned=True
+        )
+        with self.assertRaises(ValidationError):
+            space.write({'user_id': self.env.user.id, 'domain': False})
+
+    def test_fetch_spaces_carries_the_pin(self):
+        space = self._space(
+            'Shared', user_id=False, domain="[('id', '>', 0)]", pinned=True
+        )
+        entry = next(
+            row
+            for row in self.env['muk_ai.space'].fetch_spaces()
+            if row['id'] == space.id
+        )
+        self.assertTrue(entry['pinned'])
+
+    def test_deleting_a_system_space_is_refused(self):
+        space = self._space('Scheduled', user_id=False, domain="[('id', '>', 0)]")
+        with self.assertRaises(UserError):
+            space.unlink()
+
+    def test_deleting_a_personal_space_still_works(self):
+        space = self._space('Q3 Budget')
+        space.unlink()
+        self.assertFalse(space.exists())
+
+    def test_the_shipped_shared_space_is_pinned(self):
+        self.assertTrue(self.env.ref('muk_ai.space_shared').pinned)
+
+    def test_a_system_user_may_edit_the_domain(self):
+        space = self._space('Scheduled', user_id=False, domain="[('id', '>', 0)]")
+        self.assertTrue(space.can_edit_domain)
+
+    def test_a_plain_user_may_not_edit_the_domain(self):
+        user = new_test_user(self.env, login='space_plain')
+        space = self.env['muk_ai.space'].with_user(user).create({'name': 'Mine'})
+        self.assertFalse(space.can_edit_domain)

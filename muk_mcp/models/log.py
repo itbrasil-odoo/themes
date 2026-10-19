@@ -1,6 +1,7 @@
 import contextlib
 
 from odoo import api, tools, fields, models, SUPERUSER_ID
+from odoo.http import request
 from odoo.modules.registry import Registry
 from odoo.tools.misc import mute_logger
 
@@ -96,6 +97,29 @@ class MCPLog(models.Model):
     )
 
     # ----------------------------------------------------------
+    # Helper
+    # ----------------------------------------------------------
+
+    @api.model
+    def _retention_limit(self):
+        """Return the moment before which audit records are deleted."""
+        days = int(self.env['ir.config_parameter'].sudo().get_param(
+            'muk_mcp.log_autovacuum_days',
+            tools.config.get('mcp_log_autovacuum_days', 30)
+        ))
+        return fields.Datetime.subtract(fields.Datetime.now(), days=days)
+
+    @api.model
+    def _request_values(self):
+        """Return the address and credential of the HTTP request being served."""
+        if not request:
+            return {}
+        values = {'ip_address': request.httprequest.remote_addr}
+        if key := getattr(request, '_mcp_key', None):
+            values['key_id'] = key.id
+        return values
+
+    # ----------------------------------------------------------
     # Actions
     # ----------------------------------------------------------
 
@@ -141,7 +165,18 @@ class MCPLog(models.Model):
                 self.env.cr.dbname
             ).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
-            env['muk_mcp.log'].create(values)
+            env['muk_mcp.log'].create({**self._request_values(), **values})
+
+    # ----------------------------------------------------------
+    # Compute
+    # ----------------------------------------------------------
+
+    @api.depends('method', 'tool_name')
+    def _compute_display_name(self):
+        """Name each entry after its method and, for a tool call, the tool."""
+        for record in self:
+            parts = (record.method, record.tool_name)
+            record.display_name = ' - '.join(part for part in parts if part)
 
     # ----------------------------------------------------------
     # Cron
@@ -149,14 +184,7 @@ class MCPLog(models.Model):
 
     @api.autovacuum
     def _autovacuum_logs(self):
-        days = int(self.env['ir.config_parameter'].sudo().get_param(
-            'muk_mcp.log_autovacuum_days',
-            tools.config.get('mcp_log_autovacuum_days', 30)
-        ))
-        limit = fields.Datetime.subtract(
-            fields.Datetime.now(), days=days
-        )
-        domain = [('create_date', '<', limit)]
+        domain = [('create_date', '<', self._retention_limit())]
         while batch := self.search(domain, limit=5000):
             batch.unlink()
             self.env.cr.commit()

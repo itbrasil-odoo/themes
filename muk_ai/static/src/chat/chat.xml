@@ -27,6 +27,7 @@
                 onSpaceCreate.bind="onSpaceCreate"
                 onSpaceEdit.bind="onSpaceEdit"
                 onSpaceDelete.bind="onSpaceDelete"
+                onSpaceMarkRead.bind="onSpaceMarkRead"
                 onSpaceReorder.bind="onSpaceReorder"
                 onSpaceNew.bind="onSpaceNew"
                 onSpaceLoadMore.bind="onSpaceLoadMore"
@@ -183,6 +184,7 @@
                     />
                     <div class="mk_composer_wrap">
                         <ChatComposer
+                            session="session"
                             value="session.state.input"
                             placeholder="inputPlaceholder"
                             readonly="session.state.readonly"
@@ -193,8 +195,18 @@
                             isQueueing="isQueueing"
                             attachments="session.state.pendingAttachments"
                             agents="session.state.agents"
+                            sessionId="session.state.sessionId"
+                            viewContext="session.state.viewContext"
                             activeAgentId="session.state.agentId"
                             focusToken="session.state.focusToken"
+                            approvalPill="approvalPill"
+                            effortPill="effortPill"
+                            extraPills="extraPills"
+                            onSelectPill.bind="onSelectPill"
+                            showHint="true"
+                            showUsage="true"
+                            onSetApproval="(mode) => session.setApprovalMode(mode)"
+                            onSetEffort="(tier) => session.setReasoningEffort(tier)"
                             onInput.bind="onInputChange"
                             onSend.bind="onSend"
                             onStop.bind="onStop"
@@ -203,13 +215,6 @@
                             onOpenAttachment.bind="onOpenAttachment"
                             onSelectAgent="(agentId) => session.onSetAgent(agentId)"
                         />
-                        <div
-                            class="mk_composer_hint mt-1 ps-1"
-                            t-att-class="{ 'd-none': session.state.readonly }"
-                        >
-                            <span><kbd>Enter</kbd> to send</span>
-                            <span><kbd>Shift</kbd>+<kbd>Enter</kbd> for newline</span>
-                        </div>
                     </div>
                 </t>
             </main>
@@ -296,24 +301,6 @@
             >
                 <i class="fa fa-spinner fa-spin"/>
             </span>
-            <span
-                t-if="session.state.status === 'waiting_schedule' and session.state.resumeAt"
-                class="mk_chat_header_resume text-muted small"
-                t-att-title="formatTimestamp(session.state.resumeAt)"
-            >
-                <t t-esc="resumeRelativeText"/>
-            </span>
-            <button
-                t-if="session.state.sessionId"
-                class="btn btn-sm mk_approval_pill rounded-pill border-0 d-inline-flex align-items-center gap-1"
-                t-att-class="approvalPill.className"
-                t-att-title="approvalPill.tooltip"
-                t-att-disabled="!session.canWrite()"
-                t-on-click="() => this.session.cycleApprovalMode()"
-            >
-                <i class="fa" t-att-class="approvalPill.icon"/>
-                <span t-esc="approvalPill.label"/>
-            </button>
             <div class="mk_tokens ms-auto d-flex align-items-center gap-2" t-if="session.state.sessionId">
                 <button
                     class="btn btn-link btn-sm mk_search_toggle"
@@ -351,7 +338,7 @@
                     t-if="session.state.viewContext"
                 >
                     <button
-                        class="btn btn-link p-0 border-0 text-reset text-decoration-none d-inline-flex align-items-center"
+                        class="btn btn-link p-0 border-0 text-reset text-decoration-none d-inline-flex align-items-center mk_ctx_open"
                         t-att-title="viewContextTooltip"
                         t-on-click="() => this.session.openPinnedContext()"
                     >
@@ -365,26 +352,6 @@
                     >
                         <i class="fa fa-times"/>
                     </button>
-                </span>
-                <span
-                    class="mk_chip mk_context_chip rounded-pill"
-                    t-att-class="contextClass"
-                    t-att-title="contextTooltip"
-                    t-if="session.state.contextWindow"
-                >
-                    <span class="mk_context_ring" t-att-style="`--pct:${contextPercent}`"/><t t-esc="contextPercent"/>%
-                </span>
-                <span class="mk_chip rounded-pill" title="Iterations">
-                    <i class="fa fa-repeat"/><t t-esc="session.state.iterationCount"/>
-                </span>
-                <span class="mk_chip rounded-pill" title="Input tokens">
-                    <i class="fa fa-sign-in"/><t t-esc="session.state.inputTokens"/>
-                </span>
-                <span class="mk_chip rounded-pill" title="Output tokens">
-                    <i class="fa fa-sign-out"/><t t-esc="session.state.outputTokens"/>
-                </span>
-                <span class="mk_chip mk_cost_chip rounded-pill" t-att-title="costPill.tooltip">
-                    <i class="fa fa-dollar"/><t t-esc="costPill.label"/>
                 </span>
             </div>
         </div>
@@ -504,6 +471,9 @@
                     </div>
                 </t>
             </div>
+        </t>
+        <t t-elif="turnRenderer(turn)">
+            <t t-component="turnRenderer(turn)" turn="turn" session="session"/>
         </t>
         <t t-else="">
             <div class="mk_turn mk_turn_assistant" t-att-class="turn.inHistory ? 'mk_turn_in_history' : ''">

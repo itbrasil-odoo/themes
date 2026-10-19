@@ -286,7 +286,7 @@ test('_onUserBusEvent updates an existing sidebar row in place', async () => {
     expect(chat.state.sessions[0].name).toBe('New');
 });
 
-test('_onUserBusEvent for the active session mirrors fields on session state', async () => {
+test('_onUserBusEvent mirrors the metrics of the active session, not its state', async () => {
     registerMocks({ sessions: [{ id: 7, name: 'Demo', state: 'done' }] });
     const chat = await mountWithCleanup(AIChat, { props: {} });
     await chat.onSelectSession(7);
@@ -299,7 +299,8 @@ test('_onUserBusEvent for the active session mirrors fields on session state', a
         last_input_tokens: 10,
         context_window: 8000,
     });
-    expect(chat.session.state.status).toBe('running');
+    expect(chat.session.state.status).toBe('done');
+    expect(chat.state.sessions[0].state).toBe('running');
     expect(chat.session.state.iterationCount).toBe(3);
     expect(chat.session.state.inputTokens).toBe(42);
     expect(chat.session.state.outputTokens).toBe(17);
@@ -479,23 +480,6 @@ test('onOpenAttachment opens via the file viewer', async () => {
     });
     expect(opened).toHaveLength(1);
     expect(opened[0].id).toBe(5);
-});
-
-test('contextPercent returns an integer ratio of last/context window', async () => {
-    registerMocks({ sessions: [{ id: 7, name: 'Demo', state: 'done' }] });
-    const chat = await mountWithCleanup(AIChat, { props: {} });
-    await chat.onSelectSession(7);
-    chat.session.state.lastInputTokens = 2000;
-    chat.session.state.contextWindow = 8000;
-    expect(chat.contextPercent).toBe(25);
-});
-
-test('contextPercent is 0 when lastInputTokens is 0', async () => {
-    registerMocks({ sessions: [{ id: 7, name: 'Demo', state: 'done' }] });
-    const chat = await mountWithCleanup(AIChat, { props: {} });
-    await chat.onSelectSession(7);
-    chat.session.state.lastInputTokens = 0;
-    expect(chat.contextPercent).toBe(0);
 });
 
 test('isToolStreaming is true for null-result blocks while running', async () => {

@@ -1,12 +1,15 @@
 import base64
 import json
+import mimetypes
 
 from odoo import _, api, models
 from odoo.exceptions import UserError
+from odoo.http import request
 from odoo.tools.mimetypes import guess_mimetype
 
 from odoo.addons.muk_mcp.core.tool import mcp_tool
-from odoo.addons.muk_mcp.tools.uri import parse_uri
+from odoo.addons.muk_mcp.tools.content import normalize_mimetype
+from odoo.addons.muk_mcp.tools.uri import attachment_uri, parse_uri
 
 
 class MCPMixin(models.AbstractModel):
@@ -42,81 +45,143 @@ class MCPMixin(models.AbstractModel):
         return self.env[model]
 
     @api.model
+    def _mcp_record(self, model, res_id):
+        """Return the existing record a tool targets, checked against the record hook.
+
+        :raise UserError: when the model is unknown, the id is missing or the
+            record does not exist.
+        """
+        target = self._resolve_model(model)
+        if not res_id:
+            raise UserError(_("A record ID is required with a model."))
+        self._mcp_assert_records_allowed(model, [res_id])
+        if not (record := target.browse(res_id).exists()):
+            raise UserError(_(
+                "Record %(model)s/%(id)s not found", model=model, id=res_id,
+            ))
+        return record
+
+    @api.model
+    def _mcp_file_result(
+        self, filename: str, mimetype: str, content: bytes, delivery: str
+    ) -> dict:
+        """Return a produced file as base64, or stored with a one-time download link.
+
+        Links go only to clients calling over the MCP endpoint; callers inside
+        Odoo get the file inline and keep it themselves.
+        """
+        result = {'filename': filename, 'mimetype': mimetype}
+        if delivery != 'link' or not (request and getattr(request, '_mcp_key', None)):
+            return {**result, 'content_base64': base64.b64encode(content).decode()}
+        attachment = self.env['ir.attachment'].create({'name': filename, 'raw': content})
+        uri = attachment_uri(attachment.id)
+        _transfer, url = self.env['muk_mcp.transfer']._issue(
+            'download', uri=uri, attachment_id=attachment.id,
+        )
+        return {**result, 'file': uri, 'download_url': url}
+
+    @api.model
+    def _mcp_apply_domain(self, model, domain):
+        """Hook to merge a configured record domain into the caller domain."""
+        return domain
+
+    @api.model
     def _mcp_assert_records_allowed(self, model, ids):
         """Hook to assert the records may be exposed via MCP."""
 
     @api.model
-    def _resolve_resource_uri(self, uri):
-        handlers = {
-            'attachment': self._resolve_resource_attachment,
-            'record_field': self._resolve_resource_record_field,
-        }
-        if not (parsed := parse_uri(uri)) or parsed[0] not in handlers:
+    def _mcp_call_model_method(self, target, method, unbound, args, kwargs):
+        """Hook invoking an ``@api.model`` method reached through MCP.
+
+        Such a method carries no record ids, so the record hook never fires
+        for it and any narrowing has to happen around the call itself.
+        """
+        return unbound(target, *args, **kwargs)
+
+    @api.model
+    def _mcp_attachment_exempt_models(self):
+        """Return the models whose attachments are MCP payloads, not business documents.
+
+        Empty here. A module that parks the files it hands to the agent on
+        its own records (a chat upload, a published resource) adds those
+        models, so that they stay readable when another module layers access
+        restrictions on top of MCP.
+        """
+        return frozenset()
+
+    @api.model
+    def _resolve_resource_target(self, uri):
+        """Return the record and binary field an ``odoo://`` URI names, checked for reading.
+
+        :raise UserError: if the URI is unsupported, the field not binary or the
+            record missing.
+        :raise AccessError: without read access on the record or the field.
+        """
+        kind, params = parse_uri(uri) or (None, {})
+        if kind == 'attachment':
+            record = self.env['ir.attachment'].browse(params['attachment_id'])
+            field = 'raw'
+        elif kind == 'record_field':
+            target = self._resolve_model(params['model'])
+            field = params['field']
+            if (
+                target._fields.get(field) is None or
+                target._fields[field].type != 'binary'
+            ):
+                raise UserError(_(
+                    "Field %(f)r is not a readable binary field on %(m)s.",
+                    f=field, m=target._name,
+                ))
+            record = target.browse(params['record_id'])
+        else:
             raise UserError(_("Unsupported resource URI: %r", uri))
-        return handlers[parsed[0]](**parsed[1])
+        if not record.exists():
+            raise UserError(_("Resource %s does not exist.", uri))
+        if record._name == 'ir.attachment':
+            record.check('read')
+        else:
+            record.check_access('read')
+            record.check_field_access_rights('read', [field])
+        return record, field
 
     @api.model
-    def _resolve_resource_attachment(self, attachment_id):
-        attachment = self.env['ir.attachment'].browse(attachment_id)
-        if not attachment.exists():
-            raise UserError(_(
-                "Attachment %(aid)s does not exist.", aid=attachment_id,
-            ))
-        attachment.check('read')
-        return (
-            attachment.mimetype or '',
-            attachment.raw or b'',
-            attachment.name or ''
-        )
+    def _resolve_resource_uri(self, uri):
+        """Load the file an ``odoo://`` URI names as ``(mimetype, raw, name)``.
 
-    @api.model
-    def _resolve_resource_record_field(self, model, record_id, field):
-        target = self._resolve_model(model)
-        if (
-            target._fields.get(field) is None or
-            target._fields[field].type != 'binary'
-        ):
-            raise UserError(_(
-                "Field %(f)r is not a readable binary field on %(m)s.",
-                f=field, m=model,
-            ))
-        if (
-            not (record := target.browse(record_id)) or
-            not record.exists()
-        ):
-            raise UserError(_(
-                "%(m)s(%(id)s) does not exist.", m=model, id=record_id,
-            ))
-        record.check_access('read')
-        attachment = self.env['ir.attachment'].sudo().search(
+        A missing or generic mimetype is refined from the content or the name.
+
+        :raise UserError: as ``_resolve_resource_target``, or when a record's
+            binary field is empty.
+        """
+        record, field = self._resolve_resource_target(uri)
+        if record._name == 'ir.attachment':
+            mimetype, raw, name = record.mimetype, record.raw or b'', record.name or ''
+        elif attachment := self.env['ir.attachment'].sudo().search(
             [
-                ('res_model', '=', model),
-                ('res_id', '=', record_id),
+                ('res_model', '=', record._name),
+                ('res_id', '=', record.id),
                 ('res_field', '=', field),
             ],
             limit=1
-        )
-        if attachment:
-            raw = attachment.raw or b''
-            mimetype, name = (
+        ):
+            raw, mimetype, name = (
+                attachment.raw or b'',
                 attachment.mimetype,
-                attachment.name or field
+                attachment.name or field,
             )
         else:
-            value = record.with_context(bin_size=False)[field]
-            if not value:
-                raise UserError(_(
-                    "Field %(f)s is empty on %(m)s(%(id)s).",
-                    f=field, m=model, id=record_id,
-                ))
+            if not (value := record.with_context(bin_size=False)[field]):
+                raise UserError(_("Resource %s is empty.", uri))
             if isinstance(value, str):
                 value = value.encode('ascii')
             try:
                 raw = base64.b64decode(value)
             except (ValueError, TypeError):
                 raw = value
-            mimetype, name = None, field
-        return (mimetype or guess_mimetype(raw), raw, name)
+            mimetype, name = guess_mimetype(raw), field
+        if normalize_mimetype(mimetype) in ('', 'application/octet-stream'):
+            mimetype = mimetypes.guess_type(name)[0] or mimetype
+        return mimetype or '', raw, name
 
     # ----------------------------------------------------------
     # Functions

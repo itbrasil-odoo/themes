@@ -1,4 +1,4 @@
-import { describe, expect, test } from '@odoo/hoot';
+import { afterEach, describe, expect, test } from '@odoo/hoot';
 import { Component, xml } from '@odoo/owl';
 import {
     mockService,
@@ -8,12 +8,19 @@ import {
 } from '@web/../tests/web_test_helpers';
 import { defineMailModels } from '@mail/../tests/mail_test_helpers';
 
-import { useAiSession } from '@muk_ai/chat/session/use_ai_session';
+import {
+    sessionEventHandlers,
+    useAiSession,
+} from '@muk_ai/chat/session/use_ai_session';
 
 describe.current.tags('muk_ai');
 defineMailModels();
 
-const { DateTime } = luxon;
+afterEach(() => {
+    if (sessionEventHandlers.contains('probe_delta')) {
+        sessionEventHandlers.remove('probe_delta');
+    }
+});
 
 const SESSION_RECORD = {
     id: 7,
@@ -250,62 +257,6 @@ test('compact_update without an event id is ignored', async () => {
     expect(session.state.events[1].summary).toBe('part');
 });
 
-test('state bus event carries cost and a scheduled resume time', async () => {
-    const bus = makeBusMock();
-    const session = await mountSession();
-    bus.emit({
-        session_id: 7,
-        type: 'state',
-        payload: {
-            state: 'waiting_schedule',
-            total_cost: 1.25,
-            resume_at: '2026-07-26 12:00:00',
-        },
-    });
-    expect(session.state.totalCost).toBe(1.25);
-    expect(session.state.resumeAt).toBe('2026-07-26 12:00:00');
-});
-
-test('leaving waiting_schedule clears the resume time', async () => {
-    const bus = makeBusMock();
-    const session = await mountSession();
-    bus.emit({
-        session_id: 7,
-        type: 'state',
-        payload: { state: 'waiting_schedule', resume_at: '2026-07-26 12:00:00' },
-    });
-    bus.emit({ session_id: 7, type: 'state', payload: { state: 'running' } });
-    expect(session.state.resumeAt).toBe('');
-    expect(session.state.status).toBe('running');
-});
-
-test('a luxon resume_at is normalised to an ISO UTC string', async () => {
-    makeBusMock();
-    const session = await mountSession();
-    session.applySnapshot(
-        snapshotFor(SESSION_RECORD, {
-            resume_at: DateTime.fromISO('2026-07-26T10:30:00Z', { zone: 'utc' }),
-        }),
-    );
-    expect(session.state.resumeAt).toMatch(/^2026-07-26T10:30:00\.000(Z|\+00:00)$/);
-});
-
-test('an invalid luxon resume_at normalises to an empty string', async () => {
-    makeBusMock();
-    const session = await mountSession();
-    session.applySnapshot(
-        snapshotFor(SESSION_RECORD, { resume_at: DateTime.invalid('unset') }),
-    );
-    expect(session.state.resumeAt).toBe('');
-});
-
-test('a non-string non-luxon resume_at is stringified', async () => {
-    makeBusMock();
-    const session = await mountSession();
-    session.applySnapshot(snapshotFor(SESSION_RECORD, { resume_at: 1750000000 }));
-    expect(session.state.resumeAt).toBe('1750000000');
-});
-
 test('applySnapshot ignores a snapshot addressed to another session', async () => {
     makeBusMock();
     const session = await mountSession();
@@ -313,4 +264,34 @@ test('applySnapshot ignores a snapshot addressed to another session', async () =
     expect(session.state.status).toBe('running');
     session.applySnapshot(null);
     expect(session.state.status).toBe('running');
+});
+
+test('an unknown bus event type reaches its registered handler', async () => {
+    const seen = [];
+    sessionEventHandlers.add(
+        'probe_delta',
+        (payload, session) => {
+            seen.push(payload);
+            session.updateEvent(payload.event_id, 'probe', (entry) => ({
+                ...entry,
+                text: entry.text + payload.delta,
+            }));
+        },
+        { force: true },
+    );
+    const bus = makeBusMock();
+    const session = await mountSession({
+        ...SESSION_RECORD,
+        events: [...SESSION_RECORD.events, { event_id: 23, kind: 'probe', text: 'A' }],
+    });
+    bus.emit({
+        session_id: 7,
+        type: 'probe_delta',
+        payload: { event_id: 23, delta: 'Z' },
+    });
+    expect(seen).toEqual([{ event_id: 23, delta: 'Z' }]);
+    expect(session.state.events[2].text).toBe('AZ');
+    expect(session.state.events[1].text).toBe(undefined);
+    bus.emit({ session_id: 7, type: 'probe_unhandled', payload: {} });
+    expect(session.state.events).toHaveLength(3);
 });

@@ -12,13 +12,6 @@
                     <i class="fa" t-att-class="statusIcon(session.state.status)"/>
                 </span>
                 <span class="mk_window_title" t-esc="session.state.name || 'MuK AI'"/>
-                <span
-                    t-if="session.state.status === 'waiting_schedule' and session.state.resumeAt"
-                    class="mk_chat_header_resume small ms-1 opacity-75"
-                    t-att-title="formatTimestamp(session.state.resumeAt)"
-                >
-                    <t t-esc="resumeRelativeText"/>
-                </span>
                 <span class="mk_window_actions">
                     <span
                         class="mk_window_btn"
@@ -45,17 +38,11 @@
             </button>
             <t t-if="!props.minimized and (session.state.viewContext or session.state.sessionId)">
                 <div class="mk_window_subheader">
-                    <button
-                        t-if="session.state.sessionId"
-                        class="btn btn-sm mk_approval_pill rounded-pill border-0 d-inline-flex align-items-center gap-1"
-                        t-att-class="approvalPill.className"
-                        t-att-title="approvalPill.tooltip"
-                        t-att-disabled="!session.canWrite()"
-                        t-on-click="() => this.session.cycleApprovalMode()"
-                    >
-                        <i class="fa" t-att-class="approvalPill.icon"/>
-                        <span t-esc="approvalPill.label"/>
-                    </button>
+                    <t t-call="muk_ai.SessionPills">
+                        <t t-set="approval" t-value="approvalPill"/>
+                        <t t-set="effort" t-value="effortPill"/>
+                        <t t-set="extra" t-value="extraPills"/>
+                    </t>
                     <span
                         class="mk_chip mk_ctx_chip rounded-pill d-inline-flex align-items-center"
                         t-if="session.state.viewContext"
@@ -76,13 +63,11 @@
                             <i class="fa fa-times"/>
                         </button>
                     </span>
-                    <span
-                        class="mk_chip mk_cost_chip rounded-pill ms-auto"
+                    <AIUsageMeter
                         t-if="session.state.sessionId"
-                        t-att-title="costPill.tooltip"
-                    >
-                        <i class="fa fa-dollar me-1"/><t t-esc="costPill.label"/>
-                    </span>
+                        state="session.state"
+                        dropDown="true"
+                    />
                 </div>
             </t>
             <t t-if="!props.minimized">
@@ -179,6 +164,7 @@
                 </div>
                 <div class="mk_window_composer">
                     <ChatComposer
+                        session="session"
                         value="session.state.input"
                         placeholder="inputPlaceholder"
                         readonly="session.state.readonly"
@@ -189,6 +175,8 @@
                         isQueueing="isQueueing"
                         attachments="session.state.pendingAttachments"
                         agents="session.state.agents"
+                        sessionId="session.state.sessionId"
+                        viewContext="session.state.viewContext"
                         activeAgentId="session.state.agentId"
                         focusToken="session.state.focusToken"
                         onInput.bind="onInputChange"

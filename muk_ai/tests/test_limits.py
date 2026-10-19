@@ -51,7 +51,7 @@ class TestSessionLimits(AITestCommon):
                 'currency': 'EUR',
             }
         )
-        cls.provider.default_model_id = cls.cost_model
+        cls.provider.default_chat_model_id = cls.cost_model
 
     # ----------------------------------------------------------
     # Helper
@@ -217,8 +217,7 @@ class TestSessionLimits(AITestCommon):
         self.assertIn('1.50 EUR', session.error_message)
 
     def test_cost_error_falls_back_to_usd_without_a_model(self):
-        self.provider.default_model_id = False
-        self.cost_model.active = False
+        self._clear_default_models()
         session = self._session()
         self.assertEqual(session._cost_currency(), 'USD')
         session._turn_cost_error(2.0)
@@ -247,6 +246,8 @@ class TestSessionLimits(AITestCommon):
         self.assertEqual(session.state, 'done')
         self.assertAlmostEqual(session.turn_cost_spent, 1.3, places=6)
         self.assertAlmostEqual(session.total_cost, 1.3, places=6)
+        self.assertAlmostEqual(session.turn_usage['cost'], 1.3, places=6)
+        self.assertEqual(session.turn_usage['iterations'], 2)
 
     def test_turn_cost_spent_resets_when_a_paused_turn_resumes(self):
         session = self._session('resume')
@@ -254,6 +255,7 @@ class TestSessionLimits(AITestCommon):
             {
                 'state': 'waiting',
                 'turn_cost_spent': 7.0,
+                'turn_usage': {'cost': 7.0, 'iterations': 1},
                 'conversation': [
                     {'role': 'user', 'content': [{'type': 'input_text', 'text': 'go'}]}
                 ],
@@ -265,6 +267,8 @@ class TestSessionLimits(AITestCommon):
             session._resume_turn([])
         self.assertEqual(session.state, 'done')
         self.assertAlmostEqual(session.turn_cost_spent, 2.0, places=6)
+        self.assertAlmostEqual(session.turn_usage['cost'], 9.0, places=6)
+        self.assertEqual(session.turn_usage['iterations'], 2)
 
     # ----------------------------------------------------------
     # Tests: attachment size limit

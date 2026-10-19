@@ -1,31 +1,18 @@
 import { describe, expect, test } from '@odoo/hoot';
-import { freezeTime, mockDate } from '@odoo/hoot-mock';
 import { patchTranslations } from '@web/../tests/web_test_helpers';
 
 import {
     approvalPill,
-    costTooltip,
+    effortLabel,
+    effortPill,
     formatCost,
     formatDurationSeconds,
-    formatRelativeTime,
     inputPlaceholder,
     statusLabel,
 } from '@muk_ai/chat/utils';
 
 describe.current.tags('muk_ai');
 patchTranslations();
-
-/**
- * Pin the clock so that ``Date.now()`` and ``DateTime.now()`` cannot drift apart.
- *
- * Without freezing, hoot's mocked date still tracks the real performance clock,
- * so the instant a test computes is already a millisecond in the past by the
- * time the formatter reads the clock again.
- */
-function freezeClock() {
-    mockDate('2026-07-01T12:00:00.000Z');
-    freezeTime();
-}
 
 test('statusLabel maps known statuses to translated label', () => {
     expect(statusLabel('running').toString()).toMatch(/Running/i);
@@ -62,13 +49,6 @@ test('formatCost uses 2 decimals at or above 1', () => {
     expect(formatCost(12.3456)).toBe('12.35');
 });
 
-test('costTooltip formats 6 decimals with USD suffix', () => {
-    expect(costTooltip(0).toString()).toBe('Session cost so far: $0.000000 (USD)');
-    expect(costTooltip(0.12345678).toString()).toBe(
-        'Session cost so far: $0.123457 (USD)',
-    );
-});
-
 test('approvalPill returns Bypass pill when mode is off', () => {
     const pill = approvalPill({ effectiveApprovalMode: 'off' });
     expect(pill.label.toString()).toMatch(/Bypass/);
@@ -88,7 +68,7 @@ test('approvalPill marks override when approvalMode is set', () => {
         effectiveApprovalMode: 'off',
         approvalMode: 'off',
     });
-    expect(pill.className).toMatch(/mk_approval_override/);
+    expect(pill.className).toMatch(/mk_pill_override/);
     expect(pill.tooltip.toString()).toMatch(/override/);
 });
 
@@ -97,8 +77,69 @@ test('approvalPill drops override flag when approvalMode is false', () => {
         effectiveApprovalMode: 'ask',
         approvalMode: false,
     });
-    expect(pill.className).not.toMatch(/mk_approval_override/);
+    expect(pill.className).not.toMatch(/mk_pill_override/);
     expect(pill.tooltip.toString()).toMatch(/from agent/);
+});
+
+test('effortPill is null when the model offers no tiers', () => {
+    expect(effortPill({ reasoningEffortOptions: [] })).toBe(null);
+});
+
+test('effortPill leads with the agent-default row, then the model tiers', () => {
+    const pill = effortPill({
+        reasoningEffortOptions: ['low', 'medium', 'high'],
+        effectiveReasoningEffort: 'medium',
+        agentReasoningEffort: 'medium',
+        reasoningEffort: false,
+    });
+    expect(pill.options.map((o) => o.tier)).toEqual([false, 'low', 'medium', 'high']);
+    expect(String(pill.options[0].label)).toMatch(/Agent default/);
+    expect(String(pill.options[0].label)).toMatch(/Medium/);
+    // Exactly one tick, and while inheriting it belongs to the default row:
+    // the pill reads Medium because that is what resolves, not what is pinned.
+    expect(pill.options.filter((o) => o.active).map((o) => o.tier)).toEqual([false]);
+    expect(String(pill.label)).toBe('Medium');
+    expect(pill.className).not.toMatch(/mk_pill_override/);
+});
+
+test('effortPill moves the tick onto the pinned tier', () => {
+    const pill = effortPill({
+        reasoningEffortOptions: ['low', 'medium', 'high'],
+        effectiveReasoningEffort: 'high',
+        agentReasoningEffort: 'low',
+        reasoningEffort: 'high',
+    });
+    expect(pill.options.filter((o) => o.active).map((o) => o.tier)).toEqual(['high']);
+    expect(pill.className).toMatch(/mk_pill_override/);
+    expect(pill.tooltip.toString()).toMatch(/override/);
+});
+
+test('effortPill ignores an override the model no longer accepts', () => {
+    const pill = effortPill({
+        reasoningEffortOptions: ['low', 'medium'],
+        effectiveReasoningEffort: 'low',
+        agentReasoningEffort: 'low',
+        reasoningEffort: 'max',
+    });
+    expect(pill.options.filter((o) => o.active).map((o) => o.tier)).toEqual([false]);
+    expect(pill.className).not.toMatch(/mk_pill_override/);
+    expect(String(pill.label)).toBe('Low');
+});
+
+test('effortPill falls back to Default when nothing resolves a tier', () => {
+    const pill = effortPill({
+        reasoningEffortOptions: ['low'],
+        effectiveReasoningEffort: false,
+        agentReasoningEffort: false,
+        reasoningEffort: false,
+    });
+    expect(String(pill.label)).toBe('Default');
+    expect(String(pill.options[0].label)).toBe('Agent default');
+});
+
+test('effortLabel names known tiers and passes unknown ones through', () => {
+    expect(String(effortLabel('xhigh'))).toBe('Extra High');
+    expect(String(effortLabel('banana'))).toBe('banana');
 });
 
 test('inputPlaceholder overrides default when waiting for a question', () => {
@@ -125,37 +166,6 @@ test('inputPlaceholder overrides default when running', () => {
 test('inputPlaceholder returns default when idle', () => {
     const text = inputPlaceholder({ status: 'done' }, 'default text');
     expect(text).toBe('default text');
-});
-
-test('inputPlaceholder overrides default for waiting_schedule', () => {
-    const text = inputPlaceholder({ status: 'waiting_schedule' }, 'default text');
-    expect(text.toString()).toMatch(/Scheduled/i);
-});
-
-test('formatRelativeTime returns empty string for falsy or past', () => {
-    expect(formatRelativeTime(null)).toBe('');
-    expect(formatRelativeTime('')).toBe('');
-    expect(formatRelativeTime('2000-01-01T00:00:00Z')).toBe('');
-});
-
-test('formatRelativeTime renders future minutes/seconds', () => {
-    freezeClock();
-    const future = new Date(Date.now() + 5 * 60 * 1000 + 12 * 1000).toISOString();
-    expect(formatRelativeTime(future).toString()).toBe('5m 12s');
-});
-
-test('formatRelativeTime renders sub-minute distances in seconds', () => {
-    freezeClock();
-    const future = new Date(Date.now() + 42 * 1000).toISOString();
-    expect(formatRelativeTime(future).toString()).toBe('42s');
-});
-
-test('formatRelativeTime renders future hours/minutes', () => {
-    freezeClock();
-    const future = new Date(
-        Date.now() + 3 * 3600 * 1000 + 12 * 60 * 1000,
-    ).toISOString();
-    expect(formatRelativeTime(future).toString()).toBe('3h 12m');
 });
 
 test('formatDurationSeconds picks the right unit', () => {

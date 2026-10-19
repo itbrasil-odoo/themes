@@ -1,9 +1,13 @@
 import { Component, useEffect, useRef, useState } from '@odoo/owl';
 
+import { Dropdown } from '@web/core/dropdown/dropdown';
+import { DropdownItem } from '@web/core/dropdown/dropdown_item';
 import { _t } from '@web/core/l10n/translation';
 
 import { AttachmentCard } from '@muk_ai/core/attachment/attachment_card';
-import { SLASH_COMMANDS } from '@muk_ai/chat/session/use_ai_session';
+import { allSlashCommands } from '@muk_ai/chat/session/use_ai_session';
+import { ToolsMenu } from '@muk_ai/chat/tools_menu/tools_menu';
+import { AIUsageMeter } from '@muk_ai/chat/usage/usage_meter';
 
 let fileInputCounter = 0;
 
@@ -27,7 +31,13 @@ const ACCEPT = [
  */
 export class ChatComposer extends Component {
     static template = 'muk_ai.ChatComposer';
-    static components = { AttachmentCard };
+    static components = {
+        AttachmentCard,
+        Dropdown,
+        DropdownItem,
+        AIUsageMeter,
+        ToolsMenu,
+    };
     static props = {
         value: { type: String },
         placeholder: { type: String },
@@ -40,6 +50,17 @@ export class ChatComposer extends Component {
         canAttach: { type: Boolean, optional: true },
         agents: { type: Array, optional: true },
         activeAgentId: { optional: true },
+        sessionId: { optional: true },
+        session: { type: Object, optional: true },
+        viewContext: { optional: true },
+        approvalPill: { type: Object, optional: true },
+        effortPill: { type: Object, optional: true },
+        extraPills: { type: Array, optional: true },
+        showHint: { type: Boolean, optional: true },
+        showUsage: { type: Boolean, optional: true },
+        onSetApproval: { type: Function, optional: true },
+        onSetEffort: { type: Function, optional: true },
+        onSelectPill: { type: Function, optional: true },
         onInput: { type: Function },
         onSend: { type: Function },
         onStop: { type: Function, optional: true },
@@ -50,7 +71,10 @@ export class ChatComposer extends Component {
         focusToken: { type: [Number, String], optional: true },
     };
     static defaultProps = {
+        extraPills: [],
         readonly: false,
+        showHint: false,
+        showUsage: false,
         readonlyOwner: '',
         canSend: false,
         canStop: false,
@@ -106,13 +130,16 @@ export class ChatComposer extends Component {
             () => [this.menuItems.length],
         );
     }
+    get showUsage() {
+        return Boolean(this.props.showUsage && this.props.session?.state.sessionId);
+    }
     get slashCommands() {
         const value = (this.props.value || '').trim();
         if (!value.startsWith('/')) {
             return [];
         }
         const prefix = value.split(/\s+/)[0].toLowerCase();
-        return SLASH_COMMANDS.filter((c) => c.name.startsWith(prefix));
+        return allSlashCommands().filter((c) => c.name.startsWith(prefix));
     }
     get isAgentMode() {
         return /^\/agent(\s|$)/.test((this.props.value || '').trimStart());
@@ -131,12 +158,15 @@ export class ChatComposer extends Component {
     }
     /**
      * State the chat is somebody else's, naming them when they are known.
+     * Without a known owner the notice stays silent about sharing — claiming
+     * a share nobody made is how a chat the user cannot read at all ends up
+     * labelled as one that was shared with them.
      * @returns {string} the notice shown in place of the input row
      */
     get readonlyNotice() {
         return this.props.readonlyOwner
             ? _t('Read only — %s shared this chat with you.', this.props.readonlyOwner)
-            : _t('Read only — this chat was shared with you.');
+            : _t('Read only — you cannot write in this chat.');
     }
     get menuItems() {
         return this.isAgentMode ? this.agentMatches : this.slashCommands;
@@ -223,6 +253,21 @@ export class ChatComposer extends Component {
     }
     hoverSlashCommand(index) {
         this.localState.slashActive = index;
+    }
+    onSelectPill(key, value) {
+        if (this.props.onSelectPill) {
+            this.props.onSelectPill(key, value);
+        }
+    }
+    onSetApproval(mode) {
+        if (this.props.onSetApproval) {
+            this.props.onSetApproval(mode);
+        }
+    }
+    onSetEffort(tier) {
+        if (this.props.onSetEffort) {
+            this.props.onSetEffort(tier);
+        }
     }
     onInputChange(event) {
         this.props.onInput(event.target.value);
