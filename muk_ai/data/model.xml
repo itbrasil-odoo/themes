@@ -245,6 +245,48 @@
 		<field name="currency">USD</field>
 	</record>
 
+	<record id="model_claude_opus_5_5" model="muk_ai.model">
+		<field name="name">Claude Opus 5.5</field>
+		<field name="provider_id" ref="provider_anthropic"/>
+		<field name="technical_name">claude-opus-5-5</field>
+		<field name="context_window">1000000</field>
+		<field name="reasoning_efforts" eval="['low', 'medium', 'high', 'xhigh', 'max']"/>
+		<field name="reasoning_effort_default">medium</field>
+		<field name="input_rate">4.0</field>
+		<field name="output_rate">20.0</field>
+		<field name="cache_read_rate">0.2</field>
+		<field name="cache_write_rate">5.0</field>
+		<field name="currency">USD</field>
+	</record>
+
+	<record id="model_claude_sonnet_5_5" model="muk_ai.model">
+		<field name="name">Claude Sonnet 5.5</field>
+		<field name="provider_id" ref="provider_anthropic"/>
+		<field name="technical_name">claude-sonnet-5-5</field>
+		<field name="context_window">1000000</field>
+		<field name="reasoning_efforts" eval="['low', 'medium', 'high', 'xhigh', 'max']"/>
+		<field name="reasoning_effort_default">medium</field>
+		<field name="input_rate">2.0</field>
+		<field name="output_rate">10.0</field>
+		<field name="cache_read_rate">0.2</field>
+		<field name="cache_write_rate">2.5</field>
+		<field name="currency">USD</field>
+	</record>
+
+	<record id="model_claude_haiku_5_5" model="muk_ai.model">
+		<field name="name">Claude Haiku 5.5</field>
+		<field name="provider_id" ref="provider_anthropic"/>
+		<field name="technical_name">claude-haiku-5-5</field>
+		<field name="context_window">1000000</field>
+		<field name="reasoning_efforts" eval="['low', 'medium', 'high', 'xhigh', 'max']"/>
+		<field name="reasoning_effort_default">medium</field>
+		<field name="input_rate">0.1</field>
+		<field name="output_rate">0.5</field>
+		<field name="cache_read_rate">0.01</field>
+		<field name="cache_write_rate">0.125</field>
+		<field name="currency">USD</field>
+	</record>
+
 	<record id="model_claude_fable_5" model="muk_ai.model">
 		<field name="name">Claude Fable 5</field>
 		<field name="provider_id" ref="provider_anthropic"/>
@@ -383,7 +425,7 @@
 	</record>
 
 	<record id="provider_anthropic" model="muk_ai.provider">
-		<field name="default_chat_model_id" ref="model_claude_sonnet_5"/>
+		<field name="default_chat_model_id" ref="model_claude_sonnet_5_5"/>
 	</record>
 
 	<!-- Google -->

@@ -119,6 +119,35 @@ class TestAiAnthropicProvider(AITestCommon):
         body = self._capture_request_body('claude-opus-4-8', 'xhigh')
         self.assertEqual(body['output_config'], {'effort': 'xhigh'})
 
+    def test_claude_5_5_family_uses_adaptive_thinking(self):
+        for model in (
+            'claude-fable-5-1',
+            'claude-opus-5-5',
+            'claude-opus-5',
+            'claude-sonnet-5-5',
+            'claude-haiku-5-5',
+        ):
+            body = self._capture_request_body(model, 'high')
+            self.assertEqual(body['thinking'], {'type': 'adaptive'}, model)
+            self.assertEqual(body['output_config'], {'effort': 'high'}, model)
+
+    def test_claude_5_5_catalog_and_default(self):
+        provider = self.env.ref('muk_ai.provider_anthropic')
+        for xmlid, technical in (
+            ('muk_ai.model_claude_opus_5_5', 'claude-opus-5-5'),
+            ('muk_ai.model_claude_sonnet_5_5', 'claude-sonnet-5-5'),
+            ('muk_ai.model_claude_haiku_5_5', 'claude-haiku-5-5'),
+            ('muk_ai.model_claude_fable_5_1', 'claude-fable-5-1'),
+        ):
+            model = self.env.ref(xmlid)
+            self.assertEqual(model.technical_name, technical)
+            self.assertEqual(model.provider_id, provider)
+        # O provider é noupdate: base existente mantém o padrão gravado; o do
+        # adaptador vale para base nova e para provider sem modelo escolhido.
+        from odoo.addons.muk_ai.providers.anthropic import AnthropicProvider
+
+        self.assertEqual(AnthropicProvider.default_model, 'claude-sonnet-5-5')
+
     def test_fable_and_sonnet_5_use_adaptive_thinking(self):
         for model in ('claude-fable-5', 'claude-sonnet-5'):
             body = self._capture_request_body(model, 'low')
