@@ -9,7 +9,7 @@ ANTHROPIC_VERSION = '2023-06-01'
 WEB_SEARCH_TOOL_TYPE = 'web_search_20250305'
 CODE_EXECUTION_TOOL_TYPE = 'code_execution_20250825'
 
-THINKING_MODEL_TOKENS = ('fable-5', 'opus-5', 'opus-4', 'sonnet-5', 'sonnet-4')
+THINKING_MODEL_TOKENS = ('fable-5', 'opus-5', 'opus-4', 'sonnet-5', 'sonnet-4', 'haiku-5')
 LEGACY_THINKING_MODEL_TOKENS = (
     'opus-4-5',
     'sonnet-4-5',
@@ -31,7 +31,7 @@ class AnthropicProvider(ProviderBase):
 
     name = 'anthropic'
     label = 'Anthropic'
-    default_model = 'claude-sonnet-5'
+    default_model = 'claude-sonnet-5-5'
     default_url = 'https://api.anthropic.com/v1'
 
     supports_web_search = True
