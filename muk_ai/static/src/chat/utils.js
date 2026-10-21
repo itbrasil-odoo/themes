@@ -1,12 +1,58 @@
 import { _t } from '@web/core/l10n/translation';
 import { formatDateTime } from '@web/core/l10n/dates';
+import { registry } from '@web/core/registry';
+import { user } from '@web/core/user';
+
+/**
+ * Session pills an addon adds beside Approval and Effort.
+ *
+ * Each entry is `{sequence, build, onSelect}`: `build(state)` returns a pill
+ * descriptor or nothing, and `onSelect(session, value)` acts on the choice.
+ * Both surfaces draw the same list, so a pill written once appears in the
+ * full page and in the floating window.
+ */
+export const sessionPills = registry.category('muk_ai.session_pills');
+
+/**
+ * The chats of the user that the lists of this tab show: the sidebar, its
+ * search, the systray and the command palette. An extension narrows what
+ * counts as one by patching `domain` once.
+ */
+export const chatLists = {
+    /**
+     * @returns {Array} a domain on `muk_ai.session`
+     */
+    get domain() {
+        return [['user_id', '=', user.userId]];
+    },
+};
+
+/**
+ * Build the descriptors of the pills addons contribute for one session.
+ * @param {object} state session UI state
+ * @returns {Array} `{key, pill}` entries, those with nothing to show dropped
+ */
+export function extraPills(state) {
+    return sessionPills
+        .getEntries()
+        .map(([key, entry]) => ({ key, pill: entry.build(state) }))
+        .filter((entry) => entry.pill);
+}
+
+/**
+ * Act on a choice made in an addon's pill.
+ * @param {string} key the pill's registry key
+ * @param {object} session the session handle the surface holds
+ * @param {*} value what was chosen
+ */
+export function selectPill(key, session, value) {
+    const entry = sessionPills.get(key, null);
+    if (entry) {
+        entry.onSelect(session, value);
+    }
+}
 
 const { DateTime } = luxon;
-
-const SECOND_MS = 1000;
-const MINUTE_MS = 60 * SECOND_MS;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
 
 /**
  * Extract a human-readable message from an RPC or JS error.
@@ -51,39 +97,6 @@ export function formatTimestamp(at) {
 }
 
 /**
- * Format the time until a future timestamp as a compact relative string.
- * @param {*} at ISO/SQL string or Luxon DateTime
- * @returns {string} relative time (e.g. '5m 3s'), or '' when past/invalid
- */
-export function formatRelativeTime(at) {
-    const dt = parseDateTime(at);
-    if (!dt) {
-        return '';
-    }
-    const diffMs = dt.toMillis() - DateTime.now().toMillis();
-    if (diffMs <= 0) {
-        return '';
-    }
-    if (diffMs < MINUTE_MS) {
-        const s = Math.max(1, Math.round(diffMs / SECOND_MS));
-        return _t('%ss', s);
-    }
-    if (diffMs < HOUR_MS) {
-        const m = Math.floor(diffMs / MINUTE_MS);
-        const s = Math.floor((diffMs % MINUTE_MS) / SECOND_MS);
-        return _t('%sm %ss', m, s);
-    }
-    if (diffMs < DAY_MS) {
-        const h = Math.floor(diffMs / HOUR_MS);
-        const m = Math.floor((diffMs % HOUR_MS) / MINUTE_MS);
-        return _t('%sh %sm', h, m);
-    }
-    const d = Math.floor(diffMs / DAY_MS);
-    const h = Math.floor((diffMs % DAY_MS) / HOUR_MS);
-    return _t('%sd %sh', d, h);
-}
-
-/**
  * Format a duration in seconds as the largest whole unit (d/h/m/s).
  * @param {*} seconds duration in seconds
  * @returns {string} formatted duration, or '' for non-positive/invalid input
@@ -111,7 +124,6 @@ const STATUS_BADGE_CLASSES = {
     running: 'mk_state_running',
     compacting: 'mk_state_running',
     waiting: 'mk_state_waiting',
-    waiting_schedule: 'mk_state_waiting',
     done: 'mk_state_done',
     error: 'mk_state_error',
     stopped: 'mk_state_stopped',
@@ -122,7 +134,6 @@ const STATUS_ICONS = {
     running: 'fa-spinner fa-spin',
     compacting: 'fa-spinner fa-spin',
     waiting: 'fa-hourglass-half',
-    waiting_schedule: 'fa-clock-o',
     done: 'fa-check',
     error: 'fa-exclamation',
     stopped: 'fa-stop',
@@ -140,7 +151,6 @@ export function statusLabel(status) {
             running: _t('Running'),
             compacting: _t('Compacting'),
             waiting: _t('Waiting'),
-            waiting_schedule: _t('Scheduled'),
             done: _t('Done'),
             error: _t('Error'),
             stopped: _t('Stopped'),
@@ -185,16 +195,6 @@ export function formatCost(cost) {
     return value.toFixed(2);
 }
 
-/**
- * Build the tooltip text showing the running session cost.
- * @param {*} cost cost value
- * @returns {string} translated tooltip text
- */
-export function costTooltip(cost) {
-    const value = Number(cost) || 0;
-    return _t('Session cost so far: $%s (USD)', value.toFixed(6));
-}
-
 function hasOverride(state) {
     return state.approvalMode !== false && state.approvalMode !== undefined;
 }
@@ -211,18 +211,121 @@ export function approvalPill(state) {
     return {
         label: isOff ? _t('Bypass') : _t('Ask'),
         icon: isOff ? 'fa-bolt' : 'fa-shield',
+        options: [
+            {
+                mode: 'ask',
+                label: _t('Ask first'),
+                hint: _t('Ask before risky writes'),
+                icon: 'fa-shield',
+                active: !isOff,
+            },
+            {
+                mode: 'off',
+                label: _t('Bypass'),
+                hint: _t('Run without asking'),
+                icon: 'fa-bolt',
+                active: isOff,
+            },
+        ],
         className: `${isOff ? 'mk_approval_bypass' : 'mk_approval_ask'}${
-            override ? ' mk_approval_override' : ''
+            override ? ' mk_pill_override' : ''
         }${state.readonly ? ' disabled' : ''}`,
         tooltip: state.readonly
             ? _t('Approvals of a shared chat cannot be changed')
             : isOff
               ? override
-                  ? _t('Bypass (override). Click to cycle.')
-                  : _t('Bypass (from agent). Click to cycle.')
+                  ? _t('Bypass (override)')
+                  : _t('Bypass (from agent)')
               : override
-                ? _t('Ask before risky writes (override). Click to cycle.')
-                : _t('Ask before risky writes (from agent). Click to cycle.'),
+                ? _t('Ask before risky writes (override)')
+                : _t('Ask before risky writes (from agent)'),
+    };
+}
+
+/**
+ * Name a reasoning effort tier for display.
+ * @param {string} tier effort tier key
+ * @returns {string} translated tier label, or the raw key when unknown
+ */
+export function effortLabel(tier) {
+    return (
+        {
+            minimal: _t('Minimal'),
+            low: _t('Low'),
+            medium: _t('Medium'),
+            high: _t('High'),
+            xhigh: _t('Extra High'),
+            max: _t('Maximum'),
+        }[tier] ||
+        tier ||
+        ''
+    );
+}
+
+/**
+ * State what a reasoning effort tier buys and what it costs.
+ * @param {string} tier effort tier key
+ * @returns {string} translated one-line hint, empty when the tier is unknown
+ */
+function effortHint(tier) {
+    return (
+        {
+            minimal: _t('Answers immediately, barely thinks'),
+            low: _t('Fastest, everyday questions'),
+            medium: _t('Balanced'),
+            high: _t('Hard analysis · costs more'),
+            xhigh: _t('Long chains of reasoning · costs much more'),
+            max: _t('Everything the model has · slowest'),
+        }[tier] || ''
+    );
+}
+
+/**
+ * Build the reasoning-effort pill descriptor, or null when the model has none.
+ *
+ * An override the model stopped accepting reads as no override at all: the
+ * pill then shows what the turn will really run on rather than a ring over a
+ * tier the session cannot spend.
+ * @param {object} state session UI state
+ * @returns {object|null} pill descriptor, or null when there is nothing to pick
+ */
+export function effortPill(state) {
+    const tiers = state.reasoningEffortOptions || [];
+    if (!tiers.length) {
+        return null;
+    }
+    const override = tiers.includes(state.reasoningEffort)
+        ? state.reasoningEffort
+        : false;
+    const effective = state.effectiveReasoningEffort;
+    const agent = state.agentReasoningEffort;
+    return {
+        label: effective ? effortLabel(effective) : _t('Default'),
+        // The inherit row is just the first option, so every surface can render
+        // the menu as one loop and clearing reads as picking a tier.
+        options: [
+            {
+                tier: false,
+                label: agent
+                    ? _t('Agent default — %s', effortLabel(agent))
+                    : _t('Agent default'),
+                hint: '',
+                active: !override,
+            },
+            ...tiers.map((tier) => ({
+                tier,
+                label: effortLabel(tier),
+                hint: effortHint(tier),
+                // Checked means "pinned to this chat", not "what the turn
+                // happens to run on" — otherwise inheriting a tier ticks both
+                // the agent default row and the tier it resolves to.
+                active: tier === override,
+            })),
+        ],
+        className: override ? 'mk_pill_override' : '',
+        tooltip: override
+            ? _t('How hard the model thinks (override)')
+            : _t('How hard the model thinks (from agent)'),
     };
 }
 
@@ -238,9 +341,6 @@ export function inputPlaceholder(state, defaultText) {
         return kind === 'approval'
             ? _t('Approve or reject to continue…')
             : _t('Type your answer…');
-    }
-    if (state.status === 'waiting_schedule') {
-        return _t('Scheduled. Type to wake the agent…');
     }
     if (state.status === 'running') {
         return _t('Stop to interrupt…');

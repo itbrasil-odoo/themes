@@ -1,13 +1,31 @@
-import { describe, expect, test } from '@odoo/hoot';
+import { afterEach, describe, expect, test } from '@odoo/hoot';
 import { click, queryFirst, resize, waitUntil } from '@odoo/hoot-dom';
 import { animationFrame } from '@odoo/hoot-mock';
+import { Component, xml } from '@odoo/owl';
 import { mockService, mountWithCleanup, onRpc } from '@web/../tests/web_test_helpers';
 import { defineMailModels } from '@mail/../tests/mail_test_helpers';
 
 import { AIChat } from '@muk_ai/chat/chat';
+import { turnBuilders, turnRenderers } from '@muk_ai/chat/session/turns';
 
 describe.current.tags('muk_ai');
 defineMailModels();
+
+class ProbeTurn extends Component {
+    static template = xml`<div class="mk_probe_turn" t-esc="props.turn.label"/>`;
+    static props = {
+        turn: { type: Object },
+        session: { type: Object },
+    };
+}
+
+afterEach(() => {
+    for (const category of [turnBuilders, turnRenderers]) {
+        if (category.contains('probe')) {
+            category.remove('probe');
+        }
+    }
+});
 
 const SESSION_RECORD = {
     id: 7,
@@ -306,24 +324,48 @@ test('popping out on a small screen opens the full-page action instead', async (
     expect(actions[0][1].additionalContext).toEqual({ default_session_id: 7 });
 });
 
-test('the context gauge colours by fill ratio', async () => {
-    const { chat } = await mountChat();
-    chat.session.state.contextWindow = 8000;
-    chat.session.state.lastInputTokens = 1000;
-    expect(chat.contextClass).toBe('mk_context_green');
-    chat.session.state.lastInputTokens = 6000;
-    expect(chat.contextPercent).toBe(75);
-    expect(chat.contextClass).toBe('mk_context_amber');
-    chat.session.state.lastInputTokens = 7600;
-    expect(chat.contextClass).toBe('mk_context_red');
-    chat.session.state.contextWindow = 0;
-    expect(chat.contextPercent).toBe(0);
-    expect(String(chat.contextTooltip)).toMatch(/Context window/);
+test('a registered builder and renderer draw an event kind the core does not know', async () => {
+    turnBuilders.add('probe', (entry) => ({ role: 'probe', label: entry.label }), {
+        force: true,
+    });
+    turnRenderers.add('probe', ProbeTurn, { force: true });
+    await mountChat({ events: [{ event_id: 1, kind: 'probe', label: 'hello' }] });
+    expect('.mk_probe_turn').toHaveCount(1);
+    expect('.mk_probe_turn').toHaveText('hello');
+    expect('.mk_turn_assistant').toHaveCount(0);
 });
 
-test('the resume countdown is empty until a resume time is known', async () => {
-    const { chat } = await mountChat();
-    expect(chat.resumeRelativeText).toBe('');
-    chat.session.state.resumeAt = new Date(Date.now() + 120000).toISOString();
-    expect(String(chat.resumeRelativeText)).toMatch(/resumes in/);
+test('focusing an artifact opens the hidden panel on the wanted tab', async () => {
+    const { chat } = await mountChat({
+        events: [
+            {
+                event_id: 1,
+                kind: 'user_message',
+                content: 'hi',
+                attachments: [{ id: 2, filename: 'a.png', mimetype: 'image/png' }],
+            },
+            {
+                event_id: 3,
+                kind: 'tool_result',
+                call_id: 'c1',
+                result: '{}',
+                sources: [
+                    {
+                        id: 'web:1',
+                        type: 'web',
+                        url: 'https://example.com',
+                        title: 'Example',
+                        domain: 'example.com',
+                    },
+                ],
+            },
+        ],
+    });
+    expect(chat.state.artifactsHidden).toBe(true);
+    chat.session.focusArtifact('sources', 'web:1');
+    await waitUntil(() =>
+        queryFirst('.mk_artifacts_tab.active')?.textContent.includes('Sources'),
+    );
+    expect(chat.state.artifactsHidden).toBe(false);
+    expect(chat.session.state.artifactsFocus).toBe(null);
 });

@@ -93,16 +93,23 @@ class TestAiAnthropicProvider(AITestCommon):
         self.assertEqual(body['output_config'], {'effort': 'medium'})
 
     def test_legacy_thinking_low_effort_disables_thinking(self):
-        body = self._capture_request_body('claude-sonnet-4-6', 'low')
+        body = self._capture_request_body('claude-opus-4-5', 'low')
         self.assertNotIn('thinking', body)
 
     def test_legacy_thinking_budget_scales_with_effort(self):
-        default = self._capture_request_body('claude-sonnet-4-6')
+        default = self._capture_request_body('claude-opus-4-5')
         self.assertEqual(default['thinking']['budget_tokens'], 1024)
-        high = self._capture_request_body('claude-sonnet-4-6', 'high')
+        high = self._capture_request_body('claude-opus-4-5', 'high')
         self.assertEqual(high['thinking']['budget_tokens'], 4096)
-        maximum = self._capture_request_body('claude-sonnet-4-6', 'max')
-        self.assertEqual(maximum['thinking']['budget_tokens'], 16384)
+
+    def test_legacy_thinking_budget_follows_the_catalogue_tiers(self):
+        body = self._capture_request_body('claude-opus-4-5', 'max')
+        self.assertEqual(body['thinking']['budget_tokens'], 4096)
+
+    def test_sonnet_4_6_uses_adaptive_thinking_with_effort(self):
+        body = self._capture_request_body('claude-sonnet-4-6', 'high')
+        self.assertEqual(body['thinking'], {'type': 'adaptive'})
+        self.assertEqual(body['output_config'], {'effort': 'high'})
 
     def test_adaptive_thinking_maps_minimal_to_low(self):
         body = self._capture_request_body('claude-opus-4-8', 'minimal')
@@ -361,6 +368,7 @@ class TestAiAnthropicProvider(AITestCommon):
         self.assertIn('partial answer', result['text'])
         self.assertIn('Max Tokens', result['text'])
         self.assertEqual(result['usage']['output_tokens'], 2)
+        self.assertTrue(result['usage']['truncated'])
 
     def test_anthropic_stream_max_tokens_stop_appends_truncation_notice(self):
         sse = [
@@ -422,20 +430,6 @@ class TestAiAnthropicProvider(AITestCommon):
         tools = captured['body'].get('tools') or []
         types = [t.get('type') for t in tools]
         self.assertIn('code_execution_20250825', types)
-
-    def test_anthropic_ignores_image_generation_flag(self):
-        captured = {}
-
-        def fake_post(url, **kwargs):
-            captured['body'] = kwargs.get('json')
-            return self._mock_http_response(self._anthropic_body('ok'))
-
-        with patch.object(requests.Session, 'post', side_effect=fake_post):
-            self.provider._request_responses(
-                inputs=[],
-                enable_image_generation=True,
-            )
-        self.assertNotIn('tools', captured['body'])
 
     def test_anthropic_usage_remaps_cache_tokens(self):
         body = self._anthropic_body('ok')
@@ -522,3 +516,129 @@ class TestAiAnthropicProvider(AITestCommon):
 
         with patch.object(requests.Session, 'post', side_effect=fake_post):
             self.assertTrue(self.provider._get_client().test_connection())
+
+    def test_thinking_is_carried_as_provider_state_not_as_content(self):
+        body = self._anthropic_body('answer')
+        body['content'].insert(
+            0,
+            {'type': 'thinking', 'thinking': 'let me think', 'signature': 'sig-1'},
+        )
+        with patch.object(
+            requests.Session, 'post', return_value=self._mock_http_response(body)
+        ):
+            result = self.provider._request_responses(inputs=[])
+        carry = result['carry_inputs'][0]
+        self.assertEqual(carry['content'], [{'type': 'output_text', 'text': 'answer'}])
+        self.assertEqual(
+            carry['provider_state']['anthropic']['blocks'],
+            [
+                {'type': 'thinking', 'thinking': 'let me think', 'signature': 'sig-1'},
+                {'type': 'text', 'text': 'answer'},
+            ],
+        )
+
+    def test_thinking_and_server_tool_blocks_keep_their_order(self):
+        body = self._anthropic_body('answer')
+        body['content'] = [
+            {'type': 'thinking', 'thinking': 'first', 'signature': 'sig-1'},
+            {'type': 'server_tool_use', 'id': 'srv_1', 'name': 'web_search'},
+            {'type': 'web_search_tool_result', 'tool_use_id': 'srv_1'},
+            {'type': 'redacted_thinking', 'data': 'opaque'},
+            {'type': 'thinking', 'thinking': 'second', 'signature': 'sig-2'},
+            *body['content'],
+        ]
+        with patch.object(
+            requests.Session, 'post', return_value=self._mock_http_response(body)
+        ):
+            result = self.provider._request_responses(inputs=[])
+        carried = result['carry_inputs'][0]['provider_state']['anthropic']['blocks']
+        self.assertEqual(
+            [block['type'] for block in carried],
+            [
+                'thinking',
+                'server_tool_use',
+                'web_search_tool_result',
+                'redacted_thinking',
+                'thinking',
+                'text',
+            ],
+        )
+
+    def test_unsigned_thinking_is_dropped_rather_than_replayed(self):
+        body = self._anthropic_body('answer')
+        body['content'].insert(
+            0, {'type': 'thinking', 'thinking': 'unsigned', 'signature': ''}
+        )
+        with patch.object(
+            requests.Session, 'post', return_value=self._mock_http_response(body)
+        ):
+            result = self.provider._request_responses(inputs=[])
+        self.assertNotIn('unsigned', str(result['carry_inputs']))
+
+    def test_a_thinking_only_turn_still_carries_its_signature(self):
+        body = self._anthropic_body('', tool_uses=[('toolu_1', 'do_x', {'a': 1})])
+        body['content'].insert(
+            0, {'type': 'thinking', 'thinking': 'plan', 'signature': 'sig-1'}
+        )
+        with patch.object(
+            requests.Session, 'post', return_value=self._mock_http_response(body)
+        ):
+            result = self.provider._request_responses(inputs=[])
+        carry = result['carry_inputs'][0]
+        self.assertEqual(carry['content'], [])
+        self.assertEqual(
+            carry['provider_state']['anthropic']['blocks'][0]['signature'],
+            'sig-1',
+        )
+        self.assertEqual(result['carry_inputs'][1]['type'], 'function_call')
+
+    def test_streamed_thinking_is_carried_once_its_signature_arrives(self):
+        sse = [
+            'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}',
+            '',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"step"}}',
+            '',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}',
+            '',
+            'data: {"type":"content_block_start","index":1,"content_block":{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}}}',
+            '',
+            'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"query\\": \\"x\\"}"}}',
+            '',
+            'data: {"type":"content_block_start","index":2,"content_block":{"type":"web_search_tool_result","tool_use_id":"srv_1"}}',
+            '',
+            'data: {"type":"content_block_start","index":3,"content_block":{"type":"redacted_thinking","data":"opaque"}}',
+            '',
+            'data: {"type":"content_block_start","index":4,"content_block":{"type":"text","text":""}}',
+            '',
+            'data: {"type":"content_block_delta","index":4,"delta":{"type":"text_delta","text":"answer"}}',
+            '',
+            'data: {"type":"message_stop"}',
+            '',
+        ]
+        response = MagicMock()
+        response.iter_lines.return_value = iter(sse)
+        response.raise_for_status.return_value = None
+        deltas = []
+        with patch.object(requests.Session, 'post', return_value=response):
+            result = self.provider._request_responses(
+                inputs=[],
+                on_delta=lambda kind, payload: deltas.append((kind, payload)),
+            )
+        carry = result['carry_inputs'][0]
+        self.assertEqual(carry['content'], [{'type': 'output_text', 'text': 'answer'}])
+        self.assertEqual(
+            carry['provider_state']['anthropic']['blocks'],
+            [
+                {'type': 'thinking', 'thinking': 'step', 'signature': 'sig-1'},
+                {
+                    'type': 'server_tool_use',
+                    'id': 'srv_1',
+                    'name': 'web_search',
+                    'input': {'query': 'x'},
+                },
+                {'type': 'web_search_tool_result', 'tool_use_id': 'srv_1'},
+                {'type': 'redacted_thinking', 'data': 'opaque'},
+                {'type': 'text', 'text': 'answer'},
+            ],
+        )
+        self.assertEqual([p['delta'] for k, p in deltas if k == 'reasoning'], ['step'])

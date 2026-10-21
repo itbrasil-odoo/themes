@@ -16,6 +16,25 @@ _CONTEXT_EXAMPLES = (
 )
 
 
+HTTP_HINT = (
+    'Clients that can run HTTP requests (a shell, curl, a script) should use '
+    'it: the file then never passes through the conversation.'
+)
+
+
+def delivery_field() -> dict:
+    """Return the JSON schema for how a tool hands over the file it produces."""
+    return {
+        'type': 'string',
+        'enum': ['inline', 'link'],
+        'default': 'inline',
+        'description': (
+            '"inline" returns the file as base64; "link" stores it and returns a '
+            'one-time download_url instead. ' + HTTP_HINT
+        ),
+    }
+
+
 def model_field():
     return {
         'type': 'string',
@@ -47,10 +66,8 @@ def domain_field(extra_note=''):
     return {'type': 'string', 'description': description}
 
 
-def fields_field(*, required_hint=True, example=None, extra_note=''):
+def fields_field(*, example=None, extra_note=''):
     parts = ['Field names to return.']
-    if required_hint:
-        parts.append('ALWAYS specify this to avoid returning all fields (slow).')
     if extra_note:
         parts.append(extra_note)
     parts.append(

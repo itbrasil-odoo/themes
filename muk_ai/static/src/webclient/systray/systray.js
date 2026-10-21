@@ -2,7 +2,6 @@ import { Component, onWillStart, onWillUnmount, useRef, useState } from '@odoo/o
 
 import { _t } from '@web/core/l10n/translation';
 import { registry } from '@web/core/registry';
-import { user } from '@web/core/user';
 import { useService } from '@web/core/utils/hooks';
 import { useHotkey } from '@web/core/hotkeys/hotkey_hook';
 import { isMacOS } from '@web/core/browser/feature_detection';
@@ -10,6 +9,7 @@ import { debounce } from '@web/core/utils/timing';
 import { Dropdown } from '@web/core/dropdown/dropdown';
 import { DropdownItem } from '@web/core/dropdown/dropdown_item';
 
+import { chatLists } from '@muk_ai/chat/utils';
 import { useNotificationBadge } from '@muk_ai/core/notification_badge';
 
 const SYSTRAY_LIMIT = 8;
@@ -59,21 +59,17 @@ export class MukAISystray extends Component {
     async _load() {
         const seq = ++this._loadSeq;
         try {
+            const domain = chatLists.domain;
             const [recent, unread] = await Promise.all([
+                this.orm.searchRead('muk_ai.session', domain, ['id', 'name', 'state'], {
+                    limit: SYSTRAY_LIMIT,
+                    order: 'write_date DESC',
+                }),
                 this.orm.searchRead(
                     'muk_ai.session',
-                    [['user_id', '=', user.userId]],
+                    [...domain, ['notification_unread', '=', true]],
                     ['id', 'name', 'state'],
-                    { limit: SYSTRAY_LIMIT, order: 'create_date DESC' },
-                ),
-                this.orm.searchRead(
-                    'muk_ai.session',
-                    [
-                        ['user_id', '=', user.userId],
-                        ['notification_unread', '=', true],
-                    ],
-                    ['id', 'name', 'state'],
-                    { limit: SYSTRAY_LIMIT, order: 'create_date DESC' },
+                    { limit: SYSTRAY_LIMIT, order: 'write_date DESC' },
                 ),
             ]);
             if (seq === this._loadSeq) {

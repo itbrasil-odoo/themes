@@ -8,6 +8,8 @@ import {
     useState,
 } from '@odoo/owl';
 
+import { Dropdown } from '@web/core/dropdown/dropdown';
+import { DropdownItem } from '@web/core/dropdown/dropdown_item';
 import { _t } from '@web/core/l10n/translation';
 import { useDropzone } from '@web/core/dropzone/dropzone_hook';
 import { useFileViewer } from '@web/core/file_viewer/file_viewer_hook';
@@ -18,9 +20,9 @@ import { AttachmentCard } from '@muk_ai/core/attachment/attachment_card';
 import { SourceIcon, SourceList } from '@muk_ai/chat/artifacts/types/sources_tab';
 import {
     approvalPill,
-    costTooltip,
-    formatCost,
-    formatRelativeTime,
+    effortPill,
+    extraPills,
+    selectPill,
     formatTimestamp,
     inputPlaceholder,
     statusBadgeClass,
@@ -29,6 +31,7 @@ import {
 } from '@muk_ai/chat/utils';
 
 import { ChatComposer } from '@muk_ai/chat/composer/chat_composer';
+import { isToolBlockHidden, turnRendererFor } from '@muk_ai/chat/session/turns';
 import { useAiSession } from '@muk_ai/chat/session/use_ai_session';
 import {
     onScrollUpNearTop,
@@ -36,6 +39,7 @@ import {
     useChatScrollAnchor,
 } from '@muk_ai/chat/session/use_scroll_anchor';
 import { ToolCard } from '@muk_ai/chat/tools/tool_card';
+import { AIUsageMeter } from '@muk_ai/chat/usage/usage_meter';
 import { ToolGroup, buildTurnItems } from '@muk_ai/chat/tools/tool_group';
 import {
     askArgsText,
@@ -52,11 +56,14 @@ export class ChatWindow extends Component {
     static template = 'muk_ai.ChatWindow';
     static components = {
         ChatComposer,
+        Dropdown,
+        DropdownItem,
         ToolCard,
         ToolGroup,
         AttachmentCard,
         SourceIcon,
         SourceList,
+        AIUsageMeter,
     };
     static props = {
         sessionId: { type: Number },
@@ -87,10 +94,8 @@ export class ChatWindow extends Component {
         this.session.setScrollCallback(scrollToBottom);
         this.windowState = useState({
             askViews: {},
-            resumeTick: 0,
             sourcesExpanded: {},
         });
-        this._resumeTickInterval = null;
         onScrollUpNearTop(scrollRef, () =>
             preserveAnchor(scrollRef, () => this.session.loadMoreEvents()),
         );
@@ -121,21 +126,9 @@ export class ChatWindow extends Component {
         );
         onMounted(() => {
             this._installRootPasteHandler();
-            this._resumeTickInterval = window.setInterval(() => {
-                if (
-                    this.session.state.status === 'waiting_schedule' &&
-                    this.session.state.resumeAt
-                ) {
-                    this.windowState.resumeTick += 1;
-                }
-            }, 5000);
         });
         onWillUnmount(() => {
             this._uninstallRootPasteHandler();
-            if (this._resumeTickInterval !== null) {
-                window.clearInterval(this._resumeTickInterval);
-                this._resumeTickInterval = null;
-            }
         });
     }
     _installRootPasteHandler() {
@@ -186,6 +179,9 @@ export class ChatWindow extends Component {
     get renderedTurns() {
         return this.session.renderedTurns();
     }
+    turnRenderer(turn) {
+        return turnRendererFor(turn);
+    }
     renderMarkdown(text) {
         return this.session.renderMarkdown(text);
     }
@@ -202,14 +198,7 @@ export class ChatWindow extends Component {
         return this.session.isToolExpanded(callId);
     }
     isToolHiddenForAsk(block, turn) {
-        if (block.result !== null && block.result !== undefined) {
-            return false;
-        }
-        const pending = this.session.state.pendingAsk;
-        if (pending && pending.call_id === block.callId) {
-            return true;
-        }
-        return turn.blocks.some((b) => b.type === 'ask' && b.callId === block.callId);
+        return isToolBlockHidden(block, turn, this.session.state.pendingAsk);
     }
     isToolStreaming(block) {
         if (block.result !== null && block.result !== undefined) {
@@ -243,14 +232,6 @@ export class ChatWindow extends Component {
     }
     statusLabel(status) {
         return statusLabel(status);
-    }
-    get resumeRelativeText() {
-        void this.windowState.resumeTick;
-        const relative = formatRelativeTime(this.session.state.resumeAt);
-        if (!relative) {
-            return '';
-        }
-        return _t('resumes in %s', relative);
     }
     onInputChange(value) {
         this.session.onInputChange(value);
@@ -300,11 +281,26 @@ export class ChatWindow extends Component {
     get viewContextTooltip() {
         return viewContextTooltip(this.session.state.viewContext);
     }
-    get costPill() {
-        const cost = this.session.state.totalCost;
-        return { label: formatCost(cost), tooltip: costTooltip(cost) };
-    }
     get approvalPill() {
-        return approvalPill(this.session.state);
+        return this.session.state.sessionId
+            ? approvalPill(this.session.state)
+            : undefined;
+    }
+    get effortPill() {
+        return this.session.state.sessionId
+            ? effortPill(this.session.state) || undefined
+            : undefined;
+    }
+    get extraPills() {
+        return this.session.state.sessionId ? extraPills(this.session.state) : [];
+    }
+    onSelectPill(key, value) {
+        selectPill(key, this.session, value);
+    }
+    onSetApproval(mode) {
+        this.session.setApprovalMode(mode);
+    }
+    onSetEffort(tier) {
+        this.session.setReasoningEffort(tier);
     }
 }

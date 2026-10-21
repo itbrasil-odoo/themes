@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import random
 import re
 import threading
 import time
-from collections.abc import Container, Iterable
-from contextlib import suppress
+from collections.abc import Container, Iterable, Iterator
+from contextlib import contextmanager, suppress
 from datetime import timedelta
 
 import psycopg2
@@ -17,10 +18,9 @@ from markupsafe import Markup, escape
 from odoo import SUPERUSER_ID, Command, _, api, fields, models, modules, release
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import request
-from odoo.osv.expression import AND, FALSE_DOMAIN, OR, normalize_domain
+from odoo.osv import expression
 from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
-from odoo.tools import SQL, config
-from odoo.tools.sql import create_index
+from odoo.tools import SQL, config, create_index, mute_logger
 
 from odoo.addons.muk_ai.tools import (
     ADVISORY_LOCK_NAMESPACE,
@@ -28,6 +28,8 @@ from odoo.addons.muk_ai.tools import (
     ASK_USER_TOOL,
     ATTACHMENT_REF_MAX_BYTES,
     ATTACHMENT_REF_RE,
+    AVAILABLE_TOOLS_PREAMBLE,
+    CAPABILITY_TOOLS,
     CLIENT_ACTION_TIMEOUT_SECONDS,
     COMPACT_AUTO_RATIO,
     COMPACT_SUMMARY_REINJECTION,
@@ -42,6 +44,7 @@ from odoo.addons.muk_ai.tools import (
     MAX_ITERATIONS,
     MAX_TOOL_CALLS_PER_ROUND,
     MAX_WALLCLOCK_SECONDS,
+    REASONING_EFFORT_SELECTION,
     TERMINATING_TOOLS,
     TOOL_LOAD_TOOL,
     TOOL_VISION_MAX_B64_CHARS,
@@ -57,6 +60,7 @@ from odoo.addons.muk_ai.tools import (
     build_tool_call_output,
     clean_ask_preview,
     clean_view_context_payload,
+    commit_safe,
     extract_sources,
     fetch_url,
     format_tool_signature,
@@ -67,6 +71,17 @@ from odoo.addons.muk_ai.tools import (
     with_ui_ctx,
 )
 
+_logger = logging.getLogger(__name__)
+
+
+def _negate(domain: list) -> list:
+    """Return the domain matching everything the given one does not.
+
+    ``odoo.fields.Domain`` and its ``~`` operator are 19.0 only, so the
+    negation is spelled out the way the older branches expect it.
+    """
+    return ['!'] + expression.normalize_domain(domain)
+
 
 class AISession(models.Model):
     """Stateful agent conversation: runtime, streaming, tools, and approvals."""
@@ -75,6 +90,15 @@ class AISession(models.Model):
     _inherit = ['bus.listener.mixin']
     _description = 'AI Session'
     _order = 'create_date desc'
+
+    # ----------------------------------------------------------
+    # Properties
+    # ----------------------------------------------------------
+
+    @property
+    def CONVERSATION_RESET(self) -> dict:
+        """Return the values that clear a turn's leftovers when the conversation is replaced."""
+        return {'pending_ask': False, 'last_text': False, 'error_message': False}
 
     # ----------------------------------------------------------
     # Fields Identity
@@ -137,6 +161,11 @@ class AISession(models.Model):
         index=True,
     )
 
+    can_write = fields.Boolean(
+        string='Can Steer',
+        compute='_compute_can_write',
+    )
+
     share_user_ids = fields.Many2many(
         comodel_name='res.users',
         relation='muk_ai_session_share_user_rel',
@@ -192,6 +221,30 @@ class AISession(models.Model):
         string='Effective Approval Mode',
     )
 
+    override_reasoning_effort = fields.Selection(
+        selection=REASONING_EFFORT_SELECTION,
+        string='Reasoning Effort Override',
+        help=(
+            "Per-session override for the agent's reasoning effort. "
+            'Leave empty to inherit from the agent.'
+        ),
+    )
+
+    effective_reasoning_effort = fields.Char(
+        compute='_compute_effective_reasoning_effort',
+        string='Effective Reasoning Effort',
+    )
+
+    reasoning_effort_options = fields.Json(
+        compute='_compute_reasoning_effort_options',
+        string='Available Effort Options',
+    )
+
+    agent_reasoning_effort = fields.Selection(
+        related='agent_id.reasoning_effort',
+        string='Agent Reasoning Effort',
+    )
+
     # ----------------------------------------------------------
     # Fields State
     # ----------------------------------------------------------
@@ -231,6 +284,11 @@ class AISession(models.Model):
         ),
         readonly=True,
         copy=False,
+    )
+
+    awaiting_user = fields.Boolean(
+        compute='_compute_awaiting_user',
+        string='Awaiting User',
     )
 
     event_ids = fields.One2many(
@@ -302,6 +360,12 @@ class AISession(models.Model):
             'A signature in this list bypasses the approval gate on the '
             'next matching tool call. Scope is this session only.'
         ),
+        readonly=True,
+    )
+
+    disabled_tool_sources = fields.Json(
+        string='Switched Off Tools',
+        help='Keys of the tool sources switched off for this chat.',
         readonly=True,
     )
 
@@ -436,11 +500,25 @@ class AISession(models.Model):
         default=0,
     )
 
+    turn_usage = fields.Json(
+        string='Turn Usage',
+        help=(
+            'Input and output tokens, provider rounds and cost of the most '
+            'recent user turn. Reset when a new turn starts.'
+        ),
+        readonly=True,
+        copy=False,
+    )
+
     context_window = fields.Integer(
         compute='_compute_context_window',
         string='Context Window',
         help="Effective context window size for the session's active model.",
     )
+
+    # ----------------------------------------------------------
+    # Index
+    # ----------------------------------------------------------
 
     # ----------------------------------------------------------
     # Helper Resolvers
@@ -489,30 +567,7 @@ class AISession(models.Model):
         if deferred := sorted(set(catalog) - loaded):
             lines = [
                 '<available_tools>',
-                (
-                    'This list is COMPLETE: every tool the session can call '
-                    'is either in your `tools` array (immediately callable) '
-                    'or listed below. Do NOT call list_models or any '
-                    'other tool to look for tools — every name is here.'
-                ),
-                (
-                    'To use a tool listed below, call tool_load with a '
-                    '`call` argument that loads the schema AND executes the '
-                    'tool in ONE round-trip:'
-                ),
-                'tool_load(names=["<tool>"], call={name: "<tool>", arguments: {...}})',
-                (
-                    'Returns {loaded: {...}, call: {output: <result>}}. No '  # noqa: RUF027 — literal prompt text, not an f-string
-                    'follow-up turn. This is the strongly preferred shape '
-                    'for any deferred tool — never load and then call in '
-                    'two separate rounds when one will do.'
-                ),
-                (
-                    'Each line below is `name(arguments): summary`, where `*` '
-                    'marks a required argument. Pass ONLY the arguments listed '
-                    'for that tool — anything else is rejected. The summary is '
-                    'abbreviated; tool_load returns the full schema.'
-                ),
+                *AVAILABLE_TOOLS_PREAMBLE,
                 *self._available_tools_extra_paragraphs(),
                 *(
                     f'{signature}: {summary}' if summary else signature
@@ -589,6 +644,43 @@ class AISession(models.Model):
         agent = self.agent_id or self.env['muk_ai.agent']._get_default()
         return agent._render_prompt(raw, **self._session_prompt_extras())
 
+    def _runtime_capability_lines(self) -> list[str]:
+        """State the capabilities no tool in the list reveals.
+
+        The search backend route stays unstated: it ships ``web_search``.
+        """
+        agent = self.agent_id or self.env['muk_ai.agent']._get_default()
+        lines = []
+        route = (
+            agent._web_search_route()
+            if self._tool_source_enabled('web_search')
+            else None
+        )
+        if route == 'native':
+            lines.append(
+                'Web search: provider built-in — search the web whenever '
+                'freshness matters, and name the sources you used.'
+            )
+        elif route is None:
+            lines.append(
+                'Web search: unavailable — say so plainly instead of '
+                'guessing at facts that may have moved on.'
+            )
+        if (
+            self._tool_source_enabled('image_generation')
+            and agent._resolve_model_for('image')
+            and agent._admits_tool('generate_image')
+        ):
+            lines.append('Image generation: available through generate_image.')
+        if self._tool_source_enabled('code_interpreter') and (
+            agent._code_interpreter_route()
+        ):
+            lines.append(
+                'Code interpreter: provider-side sandboxed Python, for '
+                'analytics over data you already fetched.'
+            )
+        return lines
+
     def _build_runtime_block(self) -> str:
         """Build the prompt block stating runtime facts about the session."""
         lines = [
@@ -600,34 +692,103 @@ class AISession(models.Model):
             f'Company: {self.env.company.name} (res.company,{self.env.company.id})',
             f'Approval mode: {self._effective_approval_mode() if self and self.id else "ask"}',
         ]
+        if (
+            self._effective_approval_mode() if self and self.id else 'ask'
+        ) == 'ask' and (
+            gated := self.env['ir.model'].sudo().search([('ai_sensitive', '=', True)])
+        ):
+            models_list = ', '.join(sorted(gated.mapped('model')))
+            lines.append(f'Approval gate (the system asks the user): {models_list}')
         if len(self.env.user.company_ids) > 1:
             names = ', '.join(self.env.user.company_ids.sorted('id').mapped('name'))
             lines.append(f'Companies accessible: {names}')
+        lines.extend(self._runtime_capability_lines())
         lines.append('</runtime>')
         return '\n'.join(lines)
 
-    def _effective_model_record(self) -> models.BaseModel:
-        """Return the model record used by the session's agent or default."""
-        if self.agent_id and self.agent_id.model_id:
-            return self.agent_id.model_id
-        return self.env['muk_ai.provider']._get_default().default_model_id
+    def _resolve_model_for(self, modality: str) -> models.BaseModel:
+        """Return the model this session runs ``modality`` on.
 
-    def _effective_provider(self) -> models.BaseModel:
-        """Return the provider backing the session's effective model."""
-        if record := self._effective_model_record():
-            return record.provider_id
-        return self.env['muk_ai.provider']._get_default()
+        The single seam for session-level model selection: everything the
+        runtime resolves — provider, context window, every modality — reads
+        through here, so an override placed on it reaches all of them.
+        """
+        if modality == 'image' and not self._tool_source_enabled('image_generation'):
+            return self.env['muk_ai.model']
+        return self.agent_id._resolve_model_for(modality)
+
+    def _tool_source_enabled(self, key: str) -> bool:
+        """Return whether the tool source ``key`` is switched on for this chat."""
+        return key not in (self.disabled_tool_sources or [])
+
+    def _tool_sources(self) -> list[dict]:
+        """Return the tool sources a user can switch off for this chat.
+
+        A source is ``{key, section, icon, label, hint, enabled}``, a connector also
+        lists its ``items``; the abilities listed are those the agent has.
+        """
+        agent = self.agent_id
+        abilities = [
+            (
+                'web_search',
+                'fa-globe',
+                _('Web search'),
+                _('Search the web for current information'),
+                agent._web_search_route(),
+            ),
+            (
+                'image_generation',
+                'fa-picture-o',
+                _('Images'),
+                _('Create images from a description'),
+                agent._resolve_model_for('image'),
+            ),
+            (
+                'code_interpreter',
+                'fa-terminal',
+                _('Code interpreter'),
+                _('Run code to calculate and analyse data'),
+                agent._code_interpreter_route(),
+            ),
+        ]
+        section = _('Abilities')
+        return [
+            {
+                'key': key,
+                'section': section,
+                'icon': icon,
+                'label': label,
+                'hint': hint,
+                'enabled': self._tool_source_enabled(key),
+            }
+            for key, icon, label, hint, available in abilities
+            if available
+        ]
+
+    def _web_search_route(self) -> str | None:
+        """Return the agent's web search route, unless this chat switched it off."""
+        if not self._tool_source_enabled('web_search'):
+            return None
+        return self.agent_id._web_search_route()
+
+    def _code_interpreter_route(self) -> str | None:
+        """Return the agent's code interpreter route, unless this chat switched it off."""
+        if not self._tool_source_enabled('code_interpreter'):
+            return None
+        return self.agent_id._code_interpreter_route()
+
+    def _resolve_provider(self) -> models.BaseModel:
+        """Return the provider backing this session's chat model."""
+        model = self._resolve_model_for('chat')
+        return model.provider_id or self.env['muk_ai.provider']._get_default()
+
+    def _resolve_context_window(self) -> int:
+        """Return the context window of this session's model, or the default."""
+        return self._resolve_model_for('chat').context_window or DEFAULT_CONTEXT_WINDOW
 
     def _effective_model(self) -> str | None:
         """Return the technical name of the effective model, or ``None``."""
-        if record := self._effective_model_record():
-            return record.technical_name
-        return None
-
-    def _resolve_context_window(self) -> int:
-        """Return the effective model's context window, or the default."""
-        record = self._effective_model_record()
-        return (record.context_window if record else 0) or DEFAULT_CONTEXT_WINDOW
+        return self._resolve_model_for('chat').technical_name or None
 
     def _effective_approval_mode(self) -> str:
         """Return the approval mode from the override, agent, or default."""
@@ -636,6 +797,24 @@ class AISession(models.Model):
         if self.agent_id and self.agent_id.approval_mode:
             return self.agent_id.approval_mode
         return 'ask'
+
+    def _reasoning_effort_options(self) -> list[str]:
+        """Return the effort tiers the session's chat model accepts."""
+        tiers = dict(REASONING_EFFORT_SELECTION)
+        supported = self._resolve_model_for('chat').reasoning_efforts or []
+        return [tier for tier in supported if tier in tiers]
+
+    def _effective_reasoning_effort(self) -> str | None:
+        """Return the effort tier from the override or the agent.
+
+        An override the model does not accept is ignored rather than snapped
+        to a neighbour, so a model swap mid-conversation falls back to what
+        the agent asked for instead of silently spending a different tier.
+        """
+        supported = self._reasoning_effort_options()
+        if self.override_reasoning_effort in supported:
+            return self.override_reasoning_effort
+        return (self.agent_id.reasoning_effort if self.agent_id else None) or None
 
     @api.model
     def _int_config_param(self, key: str, default: int) -> int:
@@ -720,19 +899,24 @@ class AISession(models.Model):
         user_message: str | None = None,
         attachments: models.BaseModel | None = None,
     ) -> dict | None:
-        """Build a user conversation entry from a message and attachments."""
-        content = []
-        if user_message:
-            content.append({'type': 'input_text', 'text': user_message})
+        """Build a user conversation entry from a message and attachments.
+
+        Each attachment also names its ``odoo://`` uri, so tools can take it.
+        """
+        content = [{'type': 'input_text', 'text': user_message}] if user_message else []
         for attachment in attachments or []:
-            content.append(
+            content += [
+                {
+                    'type': 'input_text',
+                    'text': f'Attached file {attachment.name}: odoo://attachment/{attachment.id}',
+                },
                 {
                     'type': 'muk_ai_attachment',
                     'attachment_id': attachment.id,
                     'filename': attachment.name,
                     'mimetype': attachment.mimetype,
-                }
-            )
+                },
+            ]
         return {'role': 'user', 'content': content} if content else None
 
     def _system_message(self) -> dict:
@@ -788,9 +972,8 @@ class AISession(models.Model):
     def _get_filtered_catalog(self) -> list[dict]:
         """Return the tool catalog filtered by agent and client availability.
 
-        Client-executed tools (``_meta.execute == 'client'``) are dropped
-        unless their declared ``_meta.client`` kind is currently available
-        (see ``_available_client_kinds``).
+        ``web_search`` is offered only on its tool route, so the model never
+        sees both the app-side tool and a built-in connector.
         """
         tool_env = self.env(
             context={**self.env.context, **self._tool_dispatch_context()}
@@ -799,11 +982,19 @@ class AISession(models.Model):
         if self.agent_id:
             catalog = self.agent_id.apply_tool_filter(catalog)
         kinds = self._available_client_kinds()
+        hidden = set()
+        if self._web_search_route() != 'tool':
+            hidden.add('web_search')
+        if not self._resolve_model_for('image'):
+            hidden.add('generate_image')
         return [
             entry
             for entry in catalog
-            if (meta := entry.get('_meta') or {}).get('execute') != 'client'
-            or meta.get('client') in kinds
+            if entry.get('name') not in hidden
+            and (
+                (meta := entry.get('_meta') or {}).get('execute') != 'client'
+                or meta.get('client') in kinds
+            )
         ]
 
     def _tool_client_kind(self, name: str) -> str | None:
@@ -822,23 +1013,37 @@ class AISession(models.Model):
                 return None
         return None
 
-    def _get_essential_tool_names(self) -> list[str]:
-        """Return the essential tool names plus every visible client tool.
+    @api.model
+    def _eager_tool_name_registry(self) -> set[str]:
+        """Return every tool an addon may load upfront, condition aside.
 
-        Client tools load their full schemas upfront so a call pauses on the
-        client-action seam instead of being loaded and inline-called through
-        ``tool_load`` (which would execute it without pausing for the client).
+        The agent form subtracts this from the essential picker.
+        """
+        return set(CAPABILITY_TOOLS)
+
+    def _eager_tool_names(self) -> set[str]:
+        """Return the registered tools this session can use right now."""
+        return set(CAPABILITY_TOOLS)
+
+    def _get_essential_tool_names(self) -> list[str]:
+        """Return the essential names plus every client and eager-loaded tool.
+
+        Client tools ship upfront so a call pauses on the client-action seam.
         """
         if self.agent_id:
             names = list(self.agent_id._get_essential_tool_names())
         else:
             names = list(self.env['muk_ai.agent']._get_default_essential_tool_names())
+        eager = self._eager_tool_names()
         names.extend(
             entry['name']
             for entry in self._get_filtered_catalog()
             if entry.get('name')
             and entry['name'] not in names
-            and (entry.get('_meta') or {}).get('execute') == 'client'
+            and (
+                (entry.get('_meta') or {}).get('execute') == 'client'
+                or entry['name'] in eager
+            )
         )
         return names
 
@@ -854,7 +1059,10 @@ class AISession(models.Model):
         return result
 
     def _get_tool_schema(self) -> list[dict]:
-        """Build the function schema list for currently loaded tools."""
+        """Build the function schema list for currently loaded tools.
+
+        ``ask_user`` always rides along: asking is not approving.
+        """
         catalog_by_name = {
             entry['name']: entry for entry in self._get_filtered_catalog()
         }
@@ -864,30 +1072,20 @@ class AISession(models.Model):
         ]
         if set(catalog_by_name) - loaded:
             result.append(self._tool_entry_to_schema(TOOL_LOAD_TOOL))
-        if self._effective_approval_mode() != 'off' and 'ask_user' not in loaded:
+        if 'ask_user' not in loaded:
             result.append(self._tool_entry_to_schema(ASK_USER_TOOL))
         return result
-
-    @staticmethod
-    def _strip_internal_keys(items: Iterable) -> list:
-        """Return conversation items without internal underscore-prefixed keys."""
-        return [
-            {key: value for key, value in item.items() if not key.startswith('_')}
-            if isinstance(item, dict)
-            else item
-            for item in (items or [])
-        ]
 
     def _build_request_inputs(self) -> list[dict]:
         """Return a fresh system message followed by the annotated conversation.
 
-        Any system item persisted by an older version is dropped so the system
-        message always reflects the current agent.
+        Internal keys stay on the items; :meth:`ProviderBase._wire_items` is
+        the single place they are dropped before the request goes out.
         """
         self._close_orphan_tool_calls('tool result missing')
         history = [
             item
-            for item in self._strip_internal_keys(self.conversation)
+            for item in self.conversation or []
             if not (isinstance(item, dict) and item.get('role') == 'system')
         ]
         return [
@@ -926,6 +1124,7 @@ class AISession(models.Model):
                     'session_id': self.id,
                     'name': self.name,
                     'state': self.state,
+                    'awaiting_user': self.awaiting_user,
                 },
             )
 
@@ -936,8 +1135,15 @@ class AISession(models.Model):
         opened it subscribes to; what belongs in a sidebar that is not open
         has to reach its people directly instead.
         """
+        if notification_type == 'muk_ai.session_state' and not message.get('deleted'):
+            message = {**message, 'awaiting_user': self.awaiting_user}
         for partner in self._audience_partners():
             self.env['bus.bus']._sendone(partner, notification_type, message)
+
+    def _pending_ask_queues_input(self, pending: dict | None = None) -> bool:
+        """Tell whether typed input queues behind the pending ask."""
+        pending = self.pending_ask if pending is None else pending
+        return (pending or {}).get('kind') in ('approval', 'client_action')
 
     def _public_pending_ask(self, pending: dict | None = None) -> dict | None:
         """Return the pending ask payload stripped of internal keys."""
@@ -967,6 +1173,7 @@ class AISession(models.Model):
                 }
                 for action in public['actions']
             ]
+        public['queues_input'] = self._pending_ask_queues_input(pending)
         return public
 
     def _state_metrics(self) -> dict:
@@ -977,11 +1184,16 @@ class AISession(models.Model):
             'total_input_tokens': self.total_input_tokens,
             'total_output_tokens': self.total_output_tokens,
             'last_input_tokens': self.last_input_tokens,
+            'turn_usage': self.turn_usage or {},
             'context_window': self._resolve_context_window(),
             'view_context': self.view_context or None,
             'pending_ask': self._public_pending_ask(),
             'override_approval_mode': self.override_approval_mode or False,
             'effective_approval_mode': self._effective_approval_mode(),
+            'override_reasoning_effort': self.override_reasoning_effort or False,
+            'effective_reasoning_effort': self._effective_reasoning_effort() or False,
+            'reasoning_effort_options': self._reasoning_effort_options(),
+            'agent_reasoning_effort': self.agent_reasoning_effort or False,
             'total_cost': self.total_cost,
         }
 
@@ -1036,8 +1248,8 @@ class AISession(models.Model):
         """
         return True
 
-    def _should_notify_state(self) -> bool:
-        """Return whether a terminal state is worth telling the owner about.
+    def _should_notify_state(self, state: str) -> bool:
+        """Return whether reaching ``state`` is worth telling the owner about.
 
         True for a session somebody started and walked away from. A surface
         that shows the run as it happens overrides this: it has already told
@@ -1048,7 +1260,9 @@ class AISession(models.Model):
     def _notify_state_transition(self, payload: dict) -> None:
         """Emit bus and inbox notifications for terminal state transitions."""
         new_state = (payload or {}).get('state')
-        if not self._should_notify_state():
+        if not self._should_notify_state(new_state):
+            return
+        if self.env.context.get('muk_ai_state_unchanged'):
             return
         if new_state == 'done' and (
             self.pending_ids or self.env.context.get('muk_ai_skip_done_notification')
@@ -1161,6 +1375,8 @@ class AISession(models.Model):
 
     def _append_event(self, entry: dict) -> models.BaseModel:
         """Append an event with the next sequence and broadcast it."""
+        entry = dict(entry)
+        private = self.env['res.users'].browse(entry.pop('private_user_id', None) or [])
         stamped = (
             entry
             if 'at' in entry
@@ -1177,7 +1393,7 @@ class AISession(models.Model):
             )
             sequence = self.env.cr.fetchone()[0]
             try:
-                with self.env.cr.savepoint():
+                with self.env.cr.savepoint(), mute_logger('odoo.sql_db'):
                     event = (
                         self.env['muk_ai.session.event']
                         .sudo()
@@ -1188,14 +1404,24 @@ class AISession(models.Model):
                                 'kind': stamped.get('kind') or '',
                                 'payload': stamped,
                                 'at': fields.Datetime.now(),
+                                'private_user_id': private.id or False,
                             }
                         )
                     )
-                stamped = {**stamped, 'event_id': event.id}
+                stamped = {**stamped, 'event_id': event.id, 'sequence': sequence}
                 break
             except psycopg2.errors.UniqueViolation:
                 continue
-        self._publish_event('log', self._bus_log_payload(stamped))
+        payload = self._bus_log_payload(stamped)
+        if private:
+            # Never the session channel: everyone reading the chat is on it.
+            self.env['bus.bus']._sendone(
+                private.partner_id,
+                'muk_ai.event',
+                {'session_id': self.id, 'type': 'log', 'payload': payload},
+            )
+        else:
+            self._publish_event('log', payload)
         return event
 
     def _extend_conversation(self, items: list[dict]) -> None:
@@ -1338,13 +1564,21 @@ class AISession(models.Model):
 
     def _commit_safe(self) -> None:
         """Commit outside tests, re-raising on serialization conflicts."""
-        if not modules.module.current_test:
-            try:
-                self.env.cr.commit()
-            except PG_CONCURRENCY_EXCEPTIONS_TO_RETRY:
-                self.env.cr.rollback()
-                self.invalidate_recordset()
-                raise
+        commit_safe(self.env)
+
+    @contextmanager
+    def _read_committed(self) -> Iterator[models.BaseModel]:
+        """Yield the session in a transaction of its own that reads committed rows.
+
+        A row lock taken there waits for a busy worker's commit instead of
+        failing on it. A test runs in its own transaction instead.
+        """
+        if modules.module.current_test:
+            yield self
+            return
+        with self.env.registry.cursor() as cr:
+            cr.execute(SQL('SET TRANSACTION ISOLATION LEVEL READ COMMITTED'))
+            yield self.with_env(self.env(cr=cr))
 
     def _transition_state(self, state: str, error: str | None = None) -> None:
         """Persist a new state and publish the matching state event."""
@@ -1411,7 +1645,7 @@ class AISession(models.Model):
         try:
             self.env.cr.execute(statement)
             self.env.cr.fetchone()
-        except Exception:  # noqa: BLE001 — unlock is best-effort across cursor state
+        except Exception:
             self.env.cr.rollback()
             with suppress(Exception):
                 self.env.cr.execute(statement)
@@ -1452,7 +1686,7 @@ class AISession(models.Model):
         try:
             self.env.cr.execute(statement)
             self.env.cr.fetchone()
-        except Exception:  # noqa: BLE001 — unlock is best-effort across cursor state
+        except Exception:
             self.env.cr.rollback()
             with suppress(Exception):
                 self.env.cr.execute(statement)
@@ -1489,23 +1723,31 @@ class AISession(models.Model):
         return max(0, provider.rate_limit or 0) if provider else 0
 
     @api.model
+    def _rate_limit_domain(self) -> list:
+        """Return the domain counting the chats this user started this minute."""
+        return [
+            ('user_id', '=', self.env.user.id),
+            ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=1)),
+        ]
+
+    @api.model
     def _check_rate_limit(self, batch_size: int = 1) -> None:
         """Raise when creating ``batch_size`` sessions exceeds the rate limit.
 
         :raise UserError: when the per-minute rate limit would be exceeded
         """
         if limit := self._get_rate_limit():
-            count = self.sudo().search_count(
-                [
-                    ('user_id', '=', self.env.user.id),
-                    ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=1)),
-                ]
-            )
+            count = self.sudo().search_count(self._rate_limit_domain())
             if count + batch_size > limit:
                 raise UserError(
                     _(
-                        'Rate limit reached (%(count)s sessions in the last minute.',
+                        'Rate limit reached: at most %(limit)s chats may be '
+                        'started per minute. You started %(count)s in the last '
+                        'minute and asked for %(batch)s more. Try again in a '
+                        'minute.',
+                        limit=limit,
                         count=count,
+                        batch=batch_size,
                     )
                 )
 
@@ -1536,22 +1778,34 @@ class AISession(models.Model):
         return True
 
     def _dispatch_tool_call(self, name: str, arguments: dict, call_id: str) -> tuple:
-        """Execute a tool call and return its output and success flag."""
+        """Execute a tool call and return its output and success flag.
+
+        The chat's own context keys win over those of the tool arguments.
+        """
         if name == 'tool_load':
             output = self._dispatch_tool_load(arguments, parent_call_id=call_id)
             return output, 'error' not in output
         enforce_scope = self._enforce_tool_scope()
         arguments, resolved_refs = self._resolve_value_refs(arguments)
+        bound = self._tool_dispatch_context()
+        if isinstance(arguments, dict) and isinstance(
+            context := arguments.get('context'), dict
+        ):
+            arguments = {
+                **arguments,
+                'context': {k: v for k, v in context.items() if k not in bound},
+            }
         try:
-            tool_env = self.env(
-                context={**self.env.context, **self._tool_dispatch_context()}
-            )
+            tool_env = self.env(context={**self.env.context, **bound})
             text, _info = tool_env['muk_mcp.tool']._call(
                 name, arguments, tool_env, enforce_scope=enforce_scope
             )
-        except Exception as error:  # noqa: BLE001 — report any tool failure to the LLM
+        except PG_CONCURRENCY_EXCEPTIONS_TO_RETRY:
+            raise
+        except Exception as error:
             return {'error': str(error)}, False
         self._maybe_publish_ui_action(text, name, call_id)
+        self._settle_tool_cost(name, text)
         if previews := [
             r['preview_url'] for r in resolved_refs if r.get('preview_url')
         ]:
@@ -1803,6 +2057,7 @@ class AISession(models.Model):
             'turn_seq': (self.turn_seq or 0) + 1,
             'turn_wallclock_spent': 0.0,
             'turn_cost_spent': 0.0,
+            'turn_usage': False,
         }
 
     def _turn_superseded(self, buffer_state: dict) -> bool:
@@ -1984,10 +2239,13 @@ class AISession(models.Model):
                 on_delta=lambda kind, data: self._on_stream_delta(
                     kind, data, buffer_state
                 ),
-                reasoning_effort=agent.reasoning_effort if agent else None,
-                enable_web_search=bool(agent and agent.enable_web_search),
-                enable_image_generation=bool(agent and agent.enable_image_generation),
-                enable_code_interpreter=bool(agent and agent.enable_code_interpreter),
+                reasoning_effort=self._effective_reasoning_effort(),
+                enable_web_search=(
+                    bool(agent) and self._web_search_route() == 'native'
+                ),
+                enable_code_interpreter=(
+                    bool(agent) and self._code_interpreter_route() == 'native'
+                ),
                 cache_key=f'muk_ai.session:{self.id}',
             )
             self._flush_stream_buffer(buffer_state)
@@ -2016,11 +2274,23 @@ class AISession(models.Model):
     # Helper Agent Loop
     # ----------------------------------------------------------
 
-    def _accrue_cost_deltas(self, usage: dict | None) -> dict:
-        """Return the cumulative cost field deltas for a usage payload."""
-        if record := self._effective_model_record():
+    def _accrue_cost_deltas(
+        self,
+        usage: dict | None,
+        record: models.BaseModel | None = None,
+    ) -> dict:
+        """Return the cumulative cost field deltas for a usage payload.
+
+        ``record`` prices the usage and defaults to the effective chat model.
+        """
+        if record := record or self._resolve_model_for('chat'):
             delta = record._compute_usage_cost(usage or {})
+            turn = self.turn_usage or {}
             return {
+                'turn_usage': {
+                    **turn,
+                    'cost': turn.get('cost', 0.0) + delta['total_cost'],
+                },
                 'total_input_cost': (self.total_input_cost or 0.0)
                 + delta['input_cost'],
                 'total_output_cost': (self.total_output_cost or 0.0)
@@ -2029,6 +2299,28 @@ class AISession(models.Model):
                 'turn_cost_spent': (self.turn_cost_spent or 0.0) + delta['total_cost'],
             }
         return {}
+
+    def _accrue_model_usage(self, record: models.BaseModel, usage: dict) -> None:
+        """Charge a usage payload priced by ``record`` to the session's cost ledger."""
+        self.write(self._accrue_cost_deltas(usage, record))
+
+    def _settle_tool_cost(self, name: str, text) -> None:
+        """Charge what the image tool spent to the session's cost ledger.
+
+        ``generate_image`` is the only tool that spends money of its own, and
+        its usage is priced by the image model this session resolved — never by
+        one the tool result names.
+        """
+        if name != 'generate_image' or not (isinstance(text, str) and '"cost"' in text):
+            return
+        try:
+            cost = json.loads(text).get('cost')
+        except (ValueError, AttributeError):
+            return
+        if not isinstance(cost, dict) or not isinstance(cost.get('usage'), dict):
+            return
+        if record := self._resolve_model_for('image'):
+            self._accrue_model_usage(record, cost['usage'])
 
     def _persist_inline_images(self, text: str, cache: dict | None = None) -> str:
         """Replace inline base64 images with stored attachment references."""
@@ -2054,7 +2346,7 @@ class AISession(models.Model):
                                 res_id=self.id,
                             )
                         )
-                    except Exception:  # noqa: BLE001 — keep raw image on store failure
+                    except Exception:
                         return match.group(0)
                     attachment_id = attachment.id
                     cache[b64] = attachment_id
@@ -2098,7 +2390,7 @@ class AISession(models.Model):
 
     def _vision_enabled(self) -> bool:
         """Return whether the effective provider can consume image inputs."""
-        provider = self._effective_provider()
+        provider = self._resolve_provider()
         return bool(provider and provider.supports_vision)
 
     @staticmethod
@@ -2218,16 +2510,9 @@ class AISession(models.Model):
     def _persist_tool_file(self, result) -> object:
         """Store a tool's file payload and swap its base64 for a download URL.
 
-        A file-producing tool answers with ``content_base64``. Left in place it
-        floods the context window and still leaves the model no way to hand the
-        file over, which is why models resort to inventing ``data:`` links. The
-        bytes become a session attachment instead, and the result carries the
-        ``/web/content`` URL the chat renderer accepts.
-
         The registry JSON-encodes a tool's dict result, so the payload usually
-        arrives as text and is decoded before the swap. The reported mimetype
-        is the stored one, not the transport content type the tool sent, so
-        the chat resolves the same preview the attachment itself would.
+        arrives as text and is decoded before the swap. The reported mimetype is
+        the stored one, not the transport content type the tool sent.
         """
         if isinstance(result, str):
             if 'content_base64' not in result:
@@ -2254,12 +2539,15 @@ class AISession(models.Model):
             )
         except UserError as error:
             return {**rest, 'error': str(error)}
-        return {
+        stored = {
             **rest,
             'mimetype': attachment.mimetype,
             'attachment_id': attachment.id,
             'url': f'/web/content/{attachment.id}?download=1',
         }
+        if attachment.mimetype in IMAGE_MIMETYPES:
+            stored['image_url'] = f'/web/image/{attachment.id}'
+        return stored
 
     def _bound_tool_output(self, entry: dict) -> dict:
         """Cap an oversized tool output so one result can't exhaust the window.
@@ -2411,19 +2699,29 @@ class AISession(models.Model):
         """Accumulate token counts and costs from a round's usage payload."""
         usage = usage or {}
         round_input_tokens = usage.get('input_tokens')
+        round_output_tokens = usage.get('output_tokens', 0)
+        costs = self._accrue_cost_deltas(usage)
+        turn = costs.pop('turn_usage', self.turn_usage or {})
         self.write(
             {
                 'iteration_count': self.iteration_count + 1,
                 'total_input_tokens': self.total_input_tokens
                 + (round_input_tokens or 0),
-                'total_output_tokens': self.total_output_tokens
-                + usage.get('output_tokens', 0),
+                'total_output_tokens': self.total_output_tokens + round_output_tokens,
                 'last_input_tokens': (
                     self.last_input_tokens
                     if round_input_tokens is None
                     else round_input_tokens
                 ),
-                **self._accrue_cost_deltas(usage),
+                'turn_usage': {
+                    **turn,
+                    'input_tokens': turn.get('input_tokens', 0)
+                    + (round_input_tokens or 0),
+                    'output_tokens': turn.get('output_tokens', 0) + round_output_tokens,
+                    'iterations': turn.get('iterations', 0) + 1,
+                    **({'truncated': True} if usage.get('truncated') else {}),
+                },
+                **costs,
             }
         )
 
@@ -2701,6 +2999,8 @@ class AISession(models.Model):
         has_ask_user = any(c.get('name') == 'ask_user' for c in tool_calls)
         wait_for_user, paused = False, False
         client_names = self._client_tool_names()
+        offered = {entry.get('name') for entry in self._get_filtered_catalog()}
+        offered |= client_names | {TOOL_LOAD_TOOL['name']}
         for index in range(start_index, len(tool_calls)):
             call = tool_calls[index]
             if index >= MAX_TOOL_CALLS_PER_ROUND:
@@ -2737,6 +3037,10 @@ class AISession(models.Model):
                     continue
                 self._register_ask_user(call)
                 wait_for_user = True
+                continue
+            if call['name'] not in offered:
+                self._record_tool_call(call)
+                self._skip_tool_call(outputs, call, 'tool_not_offered')
                 continue
             if (
                 not has_ask_user
@@ -2804,9 +3108,13 @@ class AISession(models.Model):
             ),
         )
 
+    def _max_iterations_error(self) -> None:
+        """Transition to error when the turn ran out of iterations."""
+        self._transition_state('error', error=_('Maximum iterations reached.'))
+
     def _cost_currency(self) -> str:
         """Return the currency of the effective model, defaulting to USD."""
-        record = self._effective_model_record()
+        record = self._resolve_model_for('chat')
         return (record and record.currency) or 'USD'
 
     def _turn_cost_error(self, limit: float) -> None:
@@ -2928,7 +3236,7 @@ class AISession(models.Model):
             self.invalidate_recordset(['pending_ids', 'expanded_tool_names'])
             if self.pending_ids and self._drain_pending_message():
                 has_terminating = False
-            provider, model = self._effective_provider(), self._effective_model()
+            provider, model = self._resolve_provider(), self._effective_model()
             if provider.id != provider_key:
                 provider_key, materialize_cache = provider.id, {}
             tool_schema = self._get_tool_schema()
@@ -2967,14 +3275,20 @@ class AISession(models.Model):
                 return
             has_terminating = has_terminating or result
         if self.state == 'running':
-            self._transition_state('error', error=_('Maximum iterations reached.'))
+            self._max_iterations_error()
 
     # ----------------------------------------------------------
     # Queue
     # ----------------------------------------------------------
 
     def _serialize_pending(self) -> list[dict]:
-        """Return the serialized payloads of queued pending messages."""
+        """Return the queued messages, which belong to the owner alone.
+
+        Said here rather than left to the pending record rule: what someone
+        has typed but not sent is not part of a chat they shared.
+        """
+        if not self.env.su and self.user_id.id != self.env.uid:
+            return []
         return [p._to_payload() for p in self.pending_ids]
 
     def enqueue_message(
@@ -2989,33 +3303,40 @@ class AISession(models.Model):
         instead of queueing, the snapshot is returned with the marker
         ``queue_rejected_state`` and the caller re-sends the message
         through the regular send path.
+
+        :raise AccessError: when the caller may only read the session
         """
         self.ensure_one()
+        self.check_access('write')
         self.flush_recordset()
-        self.env.cr.execute(
-            'SELECT state FROM muk_ai_session WHERE id = %s FOR UPDATE',
-            [self.id],
-        )
-        row = self.env.cr.fetchone()
-        state = row[0] if row else self.state
-        self.invalidate_recordset(['state'])
-        if state not in ('running', 'waiting', 'compacting'):
-            snapshot = self.get_snapshot()
-            snapshot['queue_rejected_state'] = state
-            return snapshot
-        self.env['muk_ai.session.pending'].create(
-            {
-                'session_id': self.id,
-                'content': user_message or '',
-                'attachment_ids': list(attachment_ids or []),
-            }
-        )
-        self.invalidate_recordset(['pending_ids'])
-        self._publish_event('queue', {'pending': self._serialize_pending()})
-        return self.get_snapshot()
+        with self._read_committed() as session:
+            session.env.cr.execute(
+                SQL(
+                    'SELECT state FROM muk_ai_session WHERE id = %s FOR UPDATE',
+                    session.id,
+                )
+            )
+            state = session.env.cr.fetchone()[0]
+            session.invalidate_recordset(['state'])
+            if state not in ('running', 'waiting', 'compacting'):
+                return {**session.get_snapshot(), 'queue_rejected_state': state}
+            session.env['muk_ai.session.pending'].create(
+                {
+                    'session_id': session.id,
+                    'content': user_message or '',
+                    'attachment_ids': list(attachment_ids or []),
+                }
+            )
+            session.invalidate_recordset(['pending_ids'])
+            session._publish_event('queue', {'pending': session._serialize_pending()})
+            return session.get_snapshot()
 
     def cancel_queued(self, index: int) -> dict:
-        """Remove a queued message by index and return the snapshot."""
+        """Remove a queued message by index and return the snapshot.
+
+        :raise AccessError: when the caller may only read this chat
+        """
+        self.check_access('write')
         pending = self.pending_ids
         if 0 <= index < len(pending):
             pending[index].unlink()
@@ -3330,7 +3651,7 @@ class AISession(models.Model):
                 'role': 'system',
                 'content': [{'type': 'input_text', 'text': COMPACT_SUMMARY_SYSTEM}],
             },
-            *self._strip_internal_keys(prefix),
+            *prefix,
             {
                 'role': 'user',
                 'content': [{'type': 'input_text', 'text': prompt_text}],
@@ -3540,13 +3861,13 @@ class AISession(models.Model):
                 self._commit_safe()
 
         try:
-            payload = self._effective_provider()._request_responses(
+            payload = self._resolve_provider()._request_responses(
                 inputs=inputs,
                 tools_schema=None,
                 on_delta=on_delta,
                 model=self._effective_model(),
             )
-        except Exception as error:  # noqa: BLE001 — fall back to tail-drop on any failure
+        except Exception as error:
             self._tail_drop_fallback(
                 progress_event, prefix, tail, str(error), resume=resume
             )
@@ -3705,7 +4026,12 @@ class AISession(models.Model):
         """Return a window of session events with older-page metadata."""
         if self.id:
             self.check_access('read')
-            domain = [('session_id', '=', self.id)]
+            domain = [
+                ('session_id', '=', self.id),
+                '|',
+                ('private_user_id', '=', False),
+                ('private_user_id', '=', self.env.uid),
+            ]
             if before_sequence is not None:
                 domain.append(('sequence', '<', before_sequence))
             rows = (
@@ -3724,6 +4050,7 @@ class AISession(models.Model):
                 payload = dict(event.payload or {})
                 payload.setdefault('kind', event.kind)
                 payload['event_id'] = event.id
+                payload['sequence'] = event.sequence
                 if not payload.get('at') and event.at:
                     payload['at'] = event.at.isoformat()
                 events.append(payload)
@@ -3752,6 +4079,8 @@ class AISession(models.Model):
             'total_input_cost': self.total_input_cost,
             'total_output_cost': self.total_output_cost,
             'pending_user_messages': self._serialize_pending(),
+            'can_write': self.can_write,
+            'tool_sources': self._tool_sources(),
             **self._state_metrics(),
         }
         if include_conversation:
@@ -3843,8 +4172,10 @@ class AISession(models.Model):
     ) -> dict:
         """Start a session turn and trigger a worker.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when the session is not in a startable state
         """
+        self.check_access('write')
         self._recover_if_stuck()
         if self.state not in ('new', 'error', 'stopped'):
             raise UserError(_('Session is not in a startable state.'))
@@ -3866,8 +4197,10 @@ class AISession(models.Model):
     def answer(self, answer: str, attachment_ids: list[int] | None = None) -> dict:
         """Answer a pending question and resume the turn.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when the session is not awaiting an answer
         """
+        self.check_access('write')
         self._recover_if_stuck()
         pending = self.pending_ask or {}
         if self.state != 'waiting' or pending.get('kind') != 'question':
@@ -3903,14 +4236,14 @@ class AISession(models.Model):
         self, user_message: str, attachment_ids: list[int] | None = None
     ) -> dict:
         """Route a user message to start, answer, queue, or extend a turn."""
+        self.check_access('write')
         self._recover_if_stuck()
         if self.state in ('running', 'compacting'):
             return self.enqueue_message(user_message, attachment_ids=attachment_ids)
         if self.state == 'waiting':
-            kind = (self.pending_ask or {}).get('kind')
-            if kind in ('approval', 'client_action'):
+            if self._pending_ask_queues_input():
                 return self.enqueue_message(user_message, attachment_ids=attachment_ids)
-            if kind == 'question':
+            if (self.pending_ask or {}).get('kind') == 'question':
                 return self.answer(user_message, attachment_ids=attachment_ids)
         if not self.conversation:
             return self.start(user_message, attachment_ids=attachment_ids)
@@ -3922,8 +4255,10 @@ class AISession(models.Model):
     def regenerate_last_turn(self) -> dict:
         """Rewind to the last user turn and re-run it.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when running, compacting, waiting, or no user turn exists
         """
+        self.check_access('write')
         if self.state in ('running', 'compacting', 'waiting'):
             raise UserError(
                 _(
@@ -3971,8 +4306,10 @@ class AISession(models.Model):
     def clear(self) -> dict:
         """Reset the conversation and session state to new.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when the session is running or compacting
         """
+        self.check_access('write')
         if self.state in ('running', 'compacting'):
             raise UserError(
                 _('Cannot clear the conversation while the session is running.')
@@ -3982,13 +4319,12 @@ class AISession(models.Model):
             self.invalidate_recordset(['pending_ids'])
         self.write(
             {
+                **self.CONVERSATION_RESET,
                 'conversation': [],
-                'pending_ask': False,
                 'approved_signatures': [],
-                'last_text': False,
-                'error_message': False,
                 'iteration_count': 0,
                 'last_input_tokens': 0,
+                'turn_usage': False,
                 'state': 'new',
                 'cleared_at': fields.Datetime.now(),
             }
@@ -4007,8 +4343,10 @@ class AISession(models.Model):
     def compact(self) -> dict:
         """Begin asynchronous conversation compaction.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when running, waiting, or the conversation is empty
         """
+        self.check_access('write')
         if self.state in ('running', 'compacting'):
             raise UserError(
                 _('Cannot compact while the session is running. Stop first.')
@@ -4027,6 +4365,7 @@ class AISession(models.Model):
 
     def stop_compact(self) -> dict:
         """Cancel an in-progress compaction and return to done."""
+        self.check_access('write')
         if self.state != 'compacting':
             return self.get_snapshot()
         event = self._find_active_compact_event()
@@ -4045,8 +4384,10 @@ class AISession(models.Model):
     def undo_to_event(self, event_id: int) -> dict:
         """Rewind the conversation and events back to before an event.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when the session is running, compacting, or waiting
         """
+        self.check_access('write')
         if self.state in ('running', 'compacting'):
             raise UserError(_('Cannot rewind while the session is running.'))
         if self.state == 'waiting':
@@ -4068,10 +4409,8 @@ class AISession(models.Model):
         new_conv = list(self.conversation or [])[:cut_index]
         self.write(
             {
+                **self.CONVERSATION_RESET,
                 'conversation': new_conv,
-                'pending_ask': False,
-                'last_text': False,
-                'error_message': False,
                 'state': 'done' if new_conv else 'new',
             }
         )
@@ -4092,12 +4431,10 @@ class AISession(models.Model):
         new_conv = list(self.conversation or [])[:cut_index]
         fork = self.copy(
             {
+                **self.CONVERSATION_RESET,
                 'name': _('%s (fork)', self.name),
                 'conversation': new_conv,
                 'state': 'done' if new_conv else 'new',
-                'pending_ask': False,
-                'last_text': False,
-                'error_message': False,
                 'iteration_count': 0,
                 'event_ids': [(5, 0, 0)],
                 'pending_ids': [(5, 0, 0)],
@@ -4123,6 +4460,7 @@ class AISession(models.Model):
                         'kind': src.kind,
                         'payload': src.payload,
                         'at': src.at,
+                        'private_user_id': src.private_user_id.id or False,
                     }
                     for src in source_events
                 ]
@@ -4158,6 +4496,7 @@ class AISession(models.Model):
 
     def set_view_context(self, payload: dict | None) -> dict:
         """Pin or clear the session's view context from a client payload."""
+        self.check_access('write')
         kind = payload.get('kind') if isinstance(payload, dict) else None
         self._write_view_context(
             None
@@ -4168,6 +4507,7 @@ class AISession(models.Model):
 
     def unpin_view_context(self) -> dict:
         """Clear the pinned view context and record the command."""
+        self.check_access('write')
         self._write_view_context(None)
         self._append_event(
             {
@@ -4181,16 +4521,45 @@ class AISession(models.Model):
     def set_approval_mode(self, mode: str | None) -> dict:
         """Override the session approval mode.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when the mode is not ``ask`` or ``off``
         """
+        self.check_access('write')
         if mode and mode not in ('ask', 'off'):
             raise UserError(_('Unknown approval mode %(mode)r.', mode=mode))
         self.write({'override_approval_mode': mode or False})
         self._publish_event('state', {'state': self.state})
         return self.get_snapshot()
 
+    def set_tool_source(self, key: str, enabled: bool) -> dict:
+        """Switch a tool source of this chat on or off.
+
+        :raise AccessError: when the caller may only read the session
+        :raise UserError: when the chat has no tool source ``key``
+        """
+        self.check_access('write')
+        if key not in {source['key'] for source in self._tool_sources()}:
+            raise UserError(_('Unknown tool source %(key)r.', key=key))
+        disabled = set(self.disabled_tool_sources or []) - {key}
+        self.disabled_tool_sources = sorted(disabled if enabled else disabled | {key})
+        return self.get_snapshot()
+
+    def set_reasoning_effort(self, effort: str | None) -> dict:
+        """Override the effort tier the session's turns run on.
+
+        :raise AccessError: when the caller may only read the session
+        :raise UserError: when the tier is not one the chat model accepts
+        """
+        self.check_access('write')
+        if effort and effort not in self._reasoning_effort_options():
+            raise UserError(_('Unknown reasoning effort %(effort)r.', effort=effort))
+        self.write({'override_reasoning_effort': effort or False})
+        self._publish_event('state', {'state': self.state})
+        return self.get_snapshot()
+
     def approve_tool(self) -> dict:
         """Approve the pending tool call once and resume the round."""
+        self.check_access('write')
         pending = self._require_pending_approval()
         self._record_approval_audit(
             decision='approved',
@@ -4207,6 +4576,7 @@ class AISession(models.Model):
 
     def approve_for_session(self) -> dict:
         """Approve the pending call and whitelist its signature for the session."""
+        self.check_access('write')
         pending = self._require_pending_approval()
         risk = pending.get('risk') or {}
         if signature := risk.get('signature'):
@@ -4229,6 +4599,7 @@ class AISession(models.Model):
 
     def reject_tool(self, reason: str | None = None) -> dict:
         """Reject the pending tool call and resume the round with the rejection."""
+        self.check_access('write')
         pending = self._require_pending_approval()
         reason = (reason or '').strip() or _('User rejected the call.')
         self._record_approval_audit(
@@ -4248,9 +4619,11 @@ class AISession(models.Model):
     def submit_client_result(self, call_id: str, result) -> dict:
         """Submit a client-executed tool result, resuming once all are in.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when the session is busy or not awaiting this
             client action
         """
+        self.check_access('write')
         if not self._try_session_lock(self.id):
             raise UserError(_('The session is currently busy. Please try again.'))
         try:
@@ -4268,9 +4641,11 @@ class AISession(models.Model):
         Without ``call_id`` every unanswered action in the batch is
         rejected, which always resumes the turn.
 
+        :raise AccessError: when the caller may only read the session
         :raise UserError: when the session is busy or not awaiting this
             client action
         """
+        self.check_access('write')
         if not self._try_session_lock(self.id):
             raise UserError(_('The session is currently busy. Please try again.'))
         try:
@@ -4348,6 +4723,14 @@ class AISession(models.Model):
         if target.id == self.user_id.id:
             return True
         old_owner, session = self.user_id, self.sudo()
+        # The stored context is the previous owner's request, and the worker
+        # builds its environment from it, so it has to describe the new owner.
+        context = dict(session.user_context or {})
+        companies = [
+            company_id
+            for company_id in context.get('allowed_company_ids') or []
+            if company_id in target.company_ids.ids
+        ]
         session.write(
             {
                 'user_id': target.id,
@@ -4357,9 +4740,17 @@ class AISession(models.Model):
                     Command.link(old_owner.id),
                     Command.unlink(target.id),
                 ],
+                'user_context': {
+                    **context,
+                    **self.with_user(target).env['res.users'].context_get(),
+                    'allowed_company_ids': companies or [target.company_id.id],
+                },
             }
         )
-        session._publish_event('state', {'state': session.state})
+        session.approved_signatures = []
+        session.with_context(muk_ai_state_unchanged=True)._publish_event(
+            'state', {'state': session.state}
+        )
         session._post_inbox_notification(
             _('Chat handed over to you'),
             _(
@@ -4376,6 +4767,23 @@ class AISession(models.Model):
     # Compute
     # ----------------------------------------------------------
 
+    @api.depends_context('uid', 'su')
+    def _compute_can_write(self) -> None:
+        """Say whether this user may steer each chat, not merely read it.
+
+        Asked of the record rules rather than inferred from ownership: a chat
+        can be writable without being owned, and the client must not guess.
+        """
+        allowed = self._filtered_access('write')
+        for record in self:
+            record.can_write = record in allowed
+
+    @api.depends('state')
+    def _compute_awaiting_user(self) -> None:
+        """Flag the chats that wait for their owner to answer or approve."""
+        for record in self:
+            record.awaiting_user = record.state == 'waiting'
+
     @api.depends('agent_id', 'agent_id.model_id', 'agent_id.model_id.context_window')
     def _compute_context_window(self) -> None:
         """Resolve the effective context window for each session."""
@@ -4387,6 +4795,27 @@ class AISession(models.Model):
         """Resolve the effective approval mode for each session."""
         for record in self:
             record.effective_approval_mode = record._effective_approval_mode()
+
+    @api.depends(
+        'agent_id',
+        'agent_id.provider_id',
+        'agent_id.model_id',
+        'agent_id.model_id.reasoning_efforts',
+    )
+    def _compute_reasoning_effort_options(self) -> None:
+        """Expose the effort tiers the session's chat model accepts."""
+        for record in self:
+            record.reasoning_effort_options = record._reasoning_effort_options()
+
+    @api.depends(
+        'override_reasoning_effort',
+        'reasoning_effort_options',
+        'agent_id.reasoning_effort',
+    )
+    def _compute_effective_reasoning_effort(self) -> None:
+        """Resolve the effort tier each session's turns run on."""
+        for record in self:
+            record.effective_reasoning_effort = record._effective_reasoning_effort()
 
     @api.depends(
         'pending_ids',
@@ -4430,7 +4859,11 @@ class AISession(models.Model):
     # ----------------------------------------------------------
 
     def init(self) -> None:
-        """Index a user's chats by recency, the order the sidebar lists them."""
+        """Create the index that serves the owner's most recent chats.
+
+        ``models.Index`` is 19.0 only; on this branch the same index is
+        created by hand, with the same name the ORM would have given it.
+        """
         super().init()
         create_index(
             self.env.cr,
@@ -4457,18 +4890,14 @@ class AISession(models.Model):
         return records
 
     def write(self, vals: dict) -> bool:
-        """Emit an in-transcript marker whenever the active agent changes.
+        """Mark agent switches, keep the owner and refresh badges and readers.
 
-        Captures the previous agent per record, then for every session whose
-        ``agent_id`` actually changes emits a persisted ``agent_switched`` event
-        (rendered as a divider) plus the live pill update. As the single ORM
-        chokepoint it covers the UI dropdown, the ``/agent`` command and the
-        ``switch_agent`` MCP tool with one consistent marker.
-
-        Filing an unread chat also refreshes the badge, which carries the
-        per-space unread counts, and changing who a chat is shared with tells
-        the people it was given to or taken from.
+        Every session whose agent changes gets an ``agent_switched`` marker.
+        Only a handover, run as superuser, changes the owner. Filing an unread
+        chat refreshes the badge, and a share change tells the people it concerns.
         """
+        if 'user_id' in vals and not self.env.su:
+            raise AccessError(_('Only a handover changes the owner of a chat.'))
         previous = (
             {record.id: record.agent_id for record in self}
             if 'agent_id' in vals
@@ -4507,6 +4936,14 @@ class AISession(models.Model):
                         'agent_id': record.agent_id.id if record.agent_id else False,
                         'agent_name': record.agent_id.name if record.agent_id else '',
                         'effective_approval_mode': record._effective_approval_mode(),
+                        'effective_reasoning_effort': (
+                            record._effective_reasoning_effort() or False
+                        ),
+                        'reasoning_effort_options': record._reasoning_effort_options(),
+                        'agent_reasoning_effort': (
+                            record.agent_reasoning_effort or False
+                        ),
+                        'tool_sources': record._tool_sources(),
                     },
                 )
         return result
@@ -4555,7 +4992,7 @@ class AISession(models.Model):
         if days <= 0:
             return 0, 0
         cutoff = fields.Datetime.now() - timedelta(days=days)
-        stale_domain = AND(
+        stale_domain = expression.AND(
             [
                 domain,
                 [
@@ -4586,21 +5023,27 @@ class AISession(models.Model):
             .sudo()
             .search([('retention_mode', '!=', 'default')])
         )
-        kept = FALSE_DOMAIN
-        for space in spaces.filtered(lambda space: space.retention_mode == 'forever'):
-            kept = OR([kept, space._session_domain()])
-        not_kept = ['!', *normalize_domain(kept)]
-        general = not_kept
+        kept = [
+            space._session_domain()
+            for space in spaces.filtered(
+                lambda space: space.retention_mode == 'forever'
+            )
+        ]
+        general = expression.AND([[]] + [_negate(one) for one in kept])
         done = remaining = 0
         for space in spaces.filtered(lambda space: space.retention_mode == 'days'):
             claimed = space._session_domain()
             swept, due = self._gc_sessions_older_than(
-                space.retention_days, AND([claimed, not_kept])
+                space.retention_days,
+                expression.AND([claimed] + [_negate(one) for one in kept]),
             )
             done, remaining = done + swept, remaining + due
-            general = AND([general, ['!', *normalize_domain(claimed)]])
+            general = expression.AND([general, _negate(claimed)])
         swept, due = self._gc_sessions_older_than(self._retention_days(), general)
-        return done + swept, remaining + due
+        done, remaining = done + swept, remaining + due
+        if done:
+            _logger.info('Retention deleted %s chats, %s still due.', done, remaining)
+        return done, remaining
 
     @api.model
     def _client_action_timeout(self) -> int:
@@ -4783,7 +5226,7 @@ class AISession(models.Model):
                             superseded = True
                         except StreamCancelled:
                             cr.rollback()
-                        except Exception as error:  # noqa: BLE001 — record any worker failure
+                        except Exception as error:
                             cr.rollback()
                             self._mark_session_error(session_id, str(error))
                         processed = True

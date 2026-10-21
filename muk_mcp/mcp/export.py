@@ -1,10 +1,9 @@
-import base64
-
 from odoo import _, api, models
 from odoo.exceptions import UserError
 
 from odoo.addons.muk_mcp.core.tool import mcp_tool
 from odoo.addons.muk_mcp.tools.descriptions import (
+    delivery_field,
     domain_field,
     fields_field,
     ids_field,
@@ -34,9 +33,12 @@ class MCPMixin(models.AbstractModel):
         target = self._resolve_model(model)
         target_ids = self._normalize_ids(ids)
         if target_ids:
+            self._mcp_assert_records_allowed(model, target_ids)
             return target.browse(target_ids).exists()
         return target.search(
-            domain or [], limit=limit or None, order=order or None,
+            self._mcp_apply_domain(model, domain) or [],
+            limit=limit or None,
+            order=order or None,
         )
 
     @api.model
@@ -51,7 +53,7 @@ class MCPMixin(models.AbstractModel):
     @mcp_tool(
         name='export_records',
         description=(
-            "Export records as CSV or XLSX, returned as base64. "
+            "Export records as CSV or XLSX. "
             "Field paths use '/' to traverse relations, e.g. "
             "'partner_id/name' or 'order_line/product_id/default_code'. "
             "Honours record rules and field access."
@@ -61,7 +63,6 @@ class MCPMixin(models.AbstractModel):
             'properties': {
                 'model': model_field(),
                 'fields': fields_field(
-                    required_hint=False,
                     extra_note="Use '/' to traverse relations.",
                     example=['name', 'partner_id/name', 'order_line/product_id/default_code'],
                 ),
@@ -87,6 +88,7 @@ class MCPMixin(models.AbstractModel):
                     'type': 'string',
                     'description': "Sort order.",
                 },
+                'delivery': delivery_field(),
             },
             'required': ['model', 'fields'],
         },
@@ -101,6 +103,7 @@ class MCPMixin(models.AbstractModel):
         format='csv',
         limit=1000,
         order=None,
+        delivery='inline',
     ):
         if not fields:
             raise UserError(_('No fields provided'))
@@ -115,11 +118,10 @@ class MCPMixin(models.AbstractModel):
         content = exporter.from_data(descriptors, list(fields), rows)
         if isinstance(content, str):
             content = content.encode('utf-8-sig')
+        filename = model.replace('.', '_') + exporter.extension
         return {
-            'filename': '%s%s' % (
-                model.replace('.', '_'), exporter.extension,
+            **self._mcp_file_result(
+                filename, exporter.content_type, content, delivery,
             ),
-            'mimetype': exporter.content_type,
             'row_count': len(rows),
-            'content_base64': base64.b64encode(content).decode(),
         }

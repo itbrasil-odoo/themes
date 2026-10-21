@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import base64
+import socket
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import requests
+import urllib3
 
 from odoo import models
 from odoo.tests.common import TransactionCase, tagged
@@ -20,10 +26,68 @@ HTML_PAGE = (
     b'<footer>copyright</footer></body></html>'
 )
 
+PNG_1x1 = base64.b64encode(
+    bytes.fromhex(
+        '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4'
+        '890000000d49444154789c63f8cf00000003000100184b96c10000000049454e'
+        '44ae426082'
+    )
+).decode()
+
+PUBLIC_IP = '93.184.215.14'
+
 
 def html_result(url: str = 'https://example.com/page') -> FetchResult:
     """Build a fetch result serving the shared HTML fixture page."""
     return FetchResult(url=url, body=HTML_PAGE, content_type='text/html', charset=None)
+
+
+@contextmanager
+def serve_web(pages: dict, dns: dict | None = None) -> Iterator[list[dict]]:
+    """Serve ``pages`` at the DNS and connection pool boundary of a fetch.
+
+    :param pages: URL mapped to ``(status, headers, body)``, any other 404s
+    :param dns: host mapped to its addresses, ``None`` failing the lookup
+    :return: every opened connection with its ip, host, timeout, url and headers
+    """
+    dns = dns or {}
+    connections = []
+
+    def getaddrinfo(host, *args, **kwargs) -> list[tuple]:
+        """Resolve ``host`` through the ``dns`` table."""
+        if (ips := dns.get(host, (PUBLIC_IP,))) is None:
+            raise socket.gaierror(host)
+        return [(0, 0, 0, '', (ip, 0)) for ip in ips]
+
+    def pool(**kwargs) -> SimpleNamespace:
+        """Open a connection pool pinned to the address it was given."""
+        connection = {
+            'ip': kwargs['host'],
+            'host': kwargs['assert_hostname'],
+            'timeout': kwargs['timeout'],
+        }
+        connections.append(connection)
+
+        def urlopen(method, path, headers, **options) -> SimpleNamespace:
+            """Answer the request from ``pages``."""
+            connection['url'] = f'https://{headers["Host"]}{path}'
+            connection['headers'] = headers
+            status, answer, body = pages.get(connection['url'], (404, {}, b''))
+            chunks = body if isinstance(body, list) else [body]
+            return SimpleNamespace(
+                status=status,
+                headers=answer,
+                stream=lambda size: iter(chunks),
+                release_conn=lambda: None,
+            )
+
+        return SimpleNamespace(urlopen=urlopen, close=lambda: None)
+
+    with (
+        patch.object(socket, 'getaddrinfo', side_effect=getaddrinfo),
+        patch.object(urllib3, 'HTTPSConnectionPool', side_effect=pool),
+    ):
+        yield connections
 
 
 class FakeRequest:
@@ -92,6 +156,13 @@ class AITestCommon(TransactionCase):
         )
 
     @classmethod
+    def _clear_default_models(cls, modality: str = 'chat') -> None:
+        """Unset the default model of the modality on every provider."""
+        cls.env['muk_ai.provider'].with_context(active_test=False).search([]).write(
+            {f'default_{modality}_model_id': False},
+        )
+
+    @classmethod
     def _mark_sensitive(cls, *model_names: str) -> None:
         """Flag the given models as AI-sensitive for approval tests."""
         cls.env['ir.model'].sudo().search(
@@ -153,6 +224,97 @@ class AITestCommon(TransactionCase):
             autospec=True,
             side_effect=fake,
         ), calls
+
+
+class ImageCase(AITestCommon):
+    """Shared fixtures: an image model on OpenAI and a rendered-image stub."""
+
+    # ----------------------------------------------------------
+    # Setup
+    # ----------------------------------------------------------
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.image = cls.env['muk_ai.model'].create(
+            {
+                'name': 'Test Image',
+                'provider_id': cls.provider.id,
+                'technical_name': 'gpt-image-test',
+                'modality': 'image',
+                'input_rate': 0.0,
+                'output_rate': 0.25,
+            }
+        )
+        cls.chat_anthropic = cls.env['muk_ai.model'].create(
+            {
+                'name': 'Claude',
+                'provider_id': cls.provider_anthropic.id,
+                'technical_name': 'claude-test',
+                'context_window': 200000,
+                'input_rate': 1.0,
+                'output_rate': 1.0,
+            }
+        )
+
+    # ----------------------------------------------------------
+    # Helper
+    # ----------------------------------------------------------
+
+    def _post(self, payload: dict, captured: dict) -> AbstractContextManager:
+        """Return a patch of the pooled POST answering ``payload``.
+
+        :param captured: filled with the request kwargs and its ``url``
+        """
+
+        def fake(self_arg, url, **kwargs):
+            captured.update(kwargs, url=url)
+            return self._mock_http_response(payload)
+
+        return patch.object(requests.Session, 'post', autospec=True, side_effect=fake)
+
+    def _rendered(self, revised: str = '') -> dict:
+        """Return what ``generate_image`` answers for a rendered image."""
+        return {
+            'data_b64': PNG_1x1,
+            'mimetype': 'image/png',
+            'revised_prompt': revised,
+            'usage': {'images': 1},
+        }
+
+    def _session(self, agent: models.BaseModel) -> models.BaseModel:
+        """Create a session bound to ``agent``."""
+        return self.env['muk_ai.session'].create(
+            {'name': 'images', 'agent_id': agent.id}
+        )
+
+    def _painter_session(self) -> models.BaseModel:
+        """Create a session whose agent renders with the fixture image model."""
+        return self._session(
+            self.env['muk_ai.agent'].create(
+                {
+                    'name': 'Painter',
+                    'enable_image_generation': True,
+                    'image_model_id': self.image.id,
+                }
+            )
+        )
+
+    def _tool_result(self) -> dict:
+        """Return the tool result the image tool produces for ``self.image``."""
+        return {
+            'type': 'image',
+            'filename': 'generated.png',
+            'mimetype': 'image/png',
+            'content_base64': PNG_1x1,
+            'model': self.image.technical_name,
+            'revised_prompt': '',
+            'cost': {
+                'usage': {'images': 1},
+                'total': 0.25,
+                'currency': 'USD',
+            },
+        }
 
 
 class ToolCatalogMixin:

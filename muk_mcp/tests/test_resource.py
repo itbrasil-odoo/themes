@@ -1,7 +1,7 @@
 import base64
 
-from odoo.exceptions import UserError
-from odoo.tests import common, tagged
+from odoo.exceptions import AccessError, UserError
+from odoo.tests import common, new_test_user, tagged
 
 from odoo.addons.muk_mcp.tools.protocol import ToolContent
 
@@ -18,6 +18,16 @@ class TestReadResource(common.TransactionCase):
         super().setUpClass()
         cls.tool_model = cls.env['muk_mcp.tool']
         cls.partner = cls.env['res.partner'].create({'name': 'Att Owner'})
+        cls.acl_partner = cls.env['res.partner'].create({
+            'name': 'Confidential Owner',
+            'image_1920': (
+                b'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQ'
+                b'VQYV2NgAAIAAAUAAarVyFEAAAAASUVORK5CYII='
+            ),
+        })
+        cls.acl_user = new_test_user(
+            cls.env, login='mcp_field_acl_user', groups='base.group_user',
+        )
 
     # ----------------------------------------------------------
     # Helper
@@ -95,6 +105,12 @@ class TestReadResource(common.TransactionCase):
         self.assertEqual(resource['name'], 'blob.bin')
         self.assertEqual(base64.b64decode(resource['blob']), raw)
 
+    def test_untyped_attachment_takes_the_type_of_its_name(self):
+        raw = b'# Guide\n\nRead me.'
+        att = self._make_attachment('guide.md', 'application/octet-stream', raw)
+        block = self._call(self._attachment_uri(att))
+        self.assertEqual(block, {'type': 'text', 'text': raw.decode()})
+
     def test_pdf_attachment_returns_resource_block(self):
         raw = b'%PDF-1.4\n%not-really-a-pdf'
         att = self._make_attachment('doc.pdf', 'application/pdf', raw)
@@ -168,3 +184,20 @@ class TestReadResource(common.TransactionCase):
     def test_record_field_unknown_model_raises(self):
         with self.assertRaises(UserError):
             self._call('odoo://record/no.such.model/1/x')
+
+    def test_record_field_enforces_field_groups(self):
+        self.patch(
+            self.env['res.partner']._fields['image_1920'],
+            'groups',
+            'base.group_system',
+        )
+        mixin = self.env['muk_mcp.mixin'].with_user(self.acl_user)
+        uri = 'odoo://record/res.partner/%d/image_1920' % self.acl_partner.id
+        _mimetype, raw, _name = mixin._resolve_resource_uri(
+            uri.replace('image_1920', 'image_128'),
+        )
+        self.assertTrue(raw)
+        for resolve in (mixin._resolve_resource_uri, mixin._mcp_authorize_download):
+            with self.subTest(resolve=resolve.__name__):
+                with self.assertRaises(AccessError):
+                    resolve(uri)

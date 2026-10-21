@@ -72,15 +72,11 @@ class TestSessionBus(TransactionCase):
 
         The core builder reads the websocket request for the caller, which a
         plain transaction has none of, so it is stood in for the same way
-        Odoo tests its own builder. Mail wraps the builder to pick a guest out
-        of the request cookies, so the stand-in carries a cookie jar and an
-        environment as well, and mail's own module globals are pointed at it —
-        it imported both names before the patch could reach them.
+        Odoo tests its own builder. On this branch the chain also passes
+        through ``mail.guest``, which reads the plain request as well.
         """
         request = MagicMock()
         request.session.uid = user.id
-        request.cookies = {}
-        request.env = self.env(user=user)
         with (
             patch('odoo.addons.bus.models.ir_websocket.wsrequest', new=request),
             patch('odoo.addons.mail.models.discuss.mail_guest.request', new=None),
@@ -108,6 +104,18 @@ class TestSessionBus(TransactionCase):
             set(self._targets(captured, 'muk_ai.session_state')),
             {self.owner.partner_id, self.reader.partner_id},
         )
+
+    def test_the_sidebar_state_says_whether_the_chat_awaits_its_owner(self):
+        for state, awaiting in (('waiting', True), ('running', False)):
+            with self.subTest(state=state), self._captured() as captured:
+                self.session.sudo()._transition_state(state)
+            states = [
+                message
+                for _target, ntype, message in captured
+                if ntype == 'muk_ai.session_state'
+            ]
+            self.assertTrue(states)
+            self.assertEqual({m['awaiting_user'] for m in states}, {awaiting})
 
     def test_a_deletion_reaches_the_readers_too(self):
         session = self.env['muk_ai.session'].with_user(self.owner).create({'name': 'X'})
