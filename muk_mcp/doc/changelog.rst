@@ -1,0 +1,44 @@
+`3.2.0`
+-------
+
+- File Links for Reports and Exports
+
+`3.1.0`
+-------
+
+- Activity and File Transfer Tools
+
+`3.0.0`
+-------
+
+- MCP Version 2026-07-28
+
+`2.0.0`
+-------
+
+- MCP Version 2025-11-25
+
+`1.4.0`
+-------
+
+- Playground
+
+`1.3.0`
+-------
+
+- Python Tools
+
+`1.2.0`
+-------
+
+- Message Indicator
+
+`1.1.0`
+-------
+
+- SSE None Blocking
+
+`1.0.0`
+-------
+
+- Initial Release
