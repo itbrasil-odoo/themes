@@ -1,15 +1,15 @@
 # Translation of Odoo Server.
 # This file contains the translation of the following modules:
 # 	* muk_product
-#
 msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0+e\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-11-26 16:40+0000\n"
-"PO-Revision-Date: 2025-11-26 16:40+0000\n"
+"POT-Creation-Date: 2025-12-16 08:49+0000\n"
+"PO-Revision-Date: 2025-12-16 08:49+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
+"Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: \n"
@@ -49,7 +49,7 @@ msgstr "Aktive Produktbarcode-Automatisierung"
 #. module: muk_product
 #: model:ir.model.fields,field_description:muk_product.field_res_config_settings__active_product_default_code_automation
 msgid "Active Product Internal Reference Automation"
-msgstr "Aktive Produktinterne Referenzautomatisierung"
+msgstr "Aktive interne Produktreferenz-Automatisierung"
 
 #. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_document_search
@@ -69,7 +69,8 @@ msgstr "Ein weiterer Eintrag mit demselben Barcode existiert bereits."
 #. module: muk_product
 #: model:ir.model.constraint,message:muk_product.constraint_product_product_unique_default_code
 msgid "Another entry with the same default code already exists."
-msgstr "Ein weiterer Eintrag mit demselben Standardcode existiert bereits."
+msgstr ""
+"Ein weiterer Eintrag mit derselben internen Referenz existiert bereits."
 
 #. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_document_search
@@ -160,7 +161,7 @@ msgstr "Domäne"
 #. module: muk_product
 #: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__value_split_operator__
 msgid "Enter"
-msgstr "Eingeben"
+msgstr "Eingabe"
 
 #. module: muk_product
 #: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__search_field
@@ -322,7 +323,7 @@ msgstr "Produktname"
 #. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_res_config_settings_form
 msgid "Product Reference Automation"
-msgstr "Produktreferenzautomatisierung"
+msgstr "Produktreferenz-Automatisierung"
 
 #. module: muk_product
 #: model:ir.model,name:muk_product.model_muk_product_product_search
@@ -332,7 +333,7 @@ msgstr "Produkt Suche"
 #. module: muk_product
 #: model:ir.ui.menu,name:muk_product.menu_product_tag
 msgid "Product Tags"
-msgstr "Produkt-Tags"
+msgstr "Produkt Stichwörter"
 
 #. module: muk_product
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_template_form
@@ -389,17 +390,17 @@ msgstr "Suche mit"
 #. module: muk_product
 #: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__value_split_operator__;
 msgid "Semicolon"
-msgstr "Semikolon"
+msgstr "Strichpunkt"
 
 #. module: muk_product
 #: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__value_split_operator___
 msgid "Space"
-msgstr "Raum"
+msgstr "Leerzeichen"
 
 #. module: muk_product
 #: model:ir.model.fields,field_description:muk_product.field_muk_product_product_search__value_split_operator
 msgid "Split by"
-msgstr "Geteilt nach"
+msgstr "Geteilt durch"
 
 #. module: muk_product
 #: model:ir.model.fields.selection,name:muk_product.selection__muk_product_product_search__value_split_operator__
@@ -410,7 +411,7 @@ msgstr "Tab"
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_panel_search
 #: model_terms:ir.ui.view,arch_db:muk_product.view_product_template_panel_search
 msgid "Tags"
-msgstr "Tags"
+msgstr "Stichwörter"
 
 #. module: muk_product
 #. odoo-python

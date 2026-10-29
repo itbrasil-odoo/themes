@@ -1,15 +1,15 @@
 # Translation of Odoo Server.
 # This file contains the translation of the following modules:
 # 	* muk_mail_route
-#
 msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0+e\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-11-26 16:38+0000\n"
-"PO-Revision-Date: 2025-11-26 16:38+0000\n"
+"POT-Creation-Date: 2025-12-16 08:00+0000\n"
+"PO-Revision-Date: 2025-12-16 08:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
+"Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: \n"
@@ -97,7 +97,7 @@ msgstr ""
 #. module: muk_mail_route
 #: model:ir.model,name:muk_mail_route.model_mail_thread
 msgid "Email Thread"
-msgstr "E-Mail Thread"
+msgstr "E-Mail-Thread"
 
 #. module: muk_mail_route
 #: model_terms:ir.ui.view,arch_db:muk_mail_route.view_configuration_form
@@ -122,7 +122,7 @@ msgstr "Fehlgeschlagene E-Mails"
 #. module: muk_mail_route
 #: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_container__message_follower_ids
 msgid "Followers"
-msgstr "Anhänger"
+msgstr "Empfänger"
 
 #. module: muk_mail_route
 #: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_container__message_partner_ids
@@ -150,6 +150,7 @@ msgstr "Wenn aktiviert, erfordern neue Nachrichten Ihre Aufmerksamkeit."
 
 #. module: muk_mail_route
 #: model:ir.model.fields,help:muk_mail_route.field_muk_mail_route_container__message_has_error
+#: model:ir.model.fields,help:muk_mail_route.field_muk_mail_route_container__message_has_sms_error
 msgid "If checked, some messages have a delivery error."
 msgstr "Wenn aktiviert, haben einige Nachrichten einen Zustellfehler."
 
@@ -207,6 +208,11 @@ msgstr "Nachrichtencontainer"
 #: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_container__message_has_error
 msgid "Message Delivery error"
 msgstr "Nachrichtenzustellungsfehler"
+
+#. module: muk_mail_route
+#: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_container__message_fts_content
+msgid "Message Search Content"
+msgstr "Nachrichtensuchinhalt"
 
 #. module: muk_mail_route
 #: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_container__message_ids
@@ -275,7 +281,7 @@ msgstr "Route"
 #. odoo-python
 #: code:addons/muk_mail_route/models/mail_message.py:0
 msgid "Route Message"
-msgstr "Route-Nachricht"
+msgstr "Nachricht weiterleiten"
 
 #. module: muk_mail_route
 #: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_router__reference
@@ -305,6 +311,11 @@ msgid "Routers"
 msgstr "Router"
 
 #. module: muk_mail_route
+#: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_container__message_has_sms_error
+msgid "SMS Delivery error"
+msgstr "SMS Zustellfehler"
+
+#. module: muk_mail_route
 #: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_configuration__sequence
 msgid "Sequence"
 msgstr "Sequenz"
@@ -314,6 +325,21 @@ msgstr "Sequenz"
 #: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_router__set_is_internal
 msgid "Set Internal"
 msgstr "Intern festlegen"
+
+#. module: muk_mail_route
+#: model:ir.model.fields,help:muk_mail_route.field_muk_mail_route_container__message_fts_content
+msgid "Technical field to support full text search on messages."
+msgstr "Technisches Feld zur Unterstützung der Volltextsuche in Nachrichten."
+
+#. module: muk_mail_route
+#: model:ir.model.fields,field_description:muk_mail_route.field_muk_mail_route_container__website_message_ids
+msgid "Website Messages"
+msgstr "Websitenachrichten"
+
+#. module: muk_mail_route
+#: model:ir.model.fields,help:muk_mail_route.field_muk_mail_route_container__website_message_ids
+msgid "Website communication history"
+msgstr "Website-Kommunikationsverlauf"
 
 #. module: muk_mail_route
 #: model_terms:ir.ui.view,arch_db:muk_mail_route.view_configuration_form

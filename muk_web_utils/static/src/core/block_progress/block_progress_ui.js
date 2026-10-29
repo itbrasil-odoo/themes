@@ -1,13 +1,16 @@
-import { Component, useEffect, useState } from "@odoo/owl";
+import { Component, useEffect, useState } from '@odoo/owl';
 
+/**
+ * Full-screen blocking overlay that shows a live estimate of the time left
+ * until a long-running operation completes.
+ */
 export class BlockUIProgress extends Component {
-    static template = "BlockUIProgress";
+    static template = 'BlockUIProgress';
     static props = {
         progressData: { type: Object },
         totalSteps: { type: Number },
     };
     setup() {
-        this.timer = undefined;
         this.timeStart = Date.now();
         this.state = useState({
             timeLeft: null,
@@ -15,11 +18,12 @@ export class BlockUIProgress extends Component {
         useEffect(
             () => {
                 this.updateTimer();
+                const timer = setInterval(() => this.updateTimer(), 1000);
                 return () => {
-                    clearInterval(this.timer);
+                    clearInterval(timer);
                 };
             },
-            () => []
+            () => [],
         );
     }
     get minutesLeft() {
@@ -28,14 +32,14 @@ export class BlockUIProgress extends Component {
     get secondsLeft() {
         return Math.round(this.state.timeLeft * 60);
     }
+    /**
+     * Recompute the estimated minutes left from the elapsed time and the
+     * current progress ratio.
+     */
     updateTimer() {
-        if (this.timer) {
-            clearInterval(this.timer);
-        }
         const elapsedTime = Date.now() - this.timeStart;
         const progress = this.props.progressData.value || 1;
         const remainingRatio = (100 - progress) / progress;
         this.state.timeLeft = (elapsedTime * remainingRatio) / 60000;
-        this.timer = setInterval(() => this.updateTimer(), 1000);
     }
 }

@@ -1,13 +1,13 @@
 {
-    'name': 'MuK Web Utils', 
+    'name': 'MuK Web Utils',
     'summary': 'Adds utility features for the web client',
-    'description': '''
-        Technical module to provide some utility features and libraries that 
+    'description': """
+        Technical module to provide some utility features and libraries that
         can be used in other applications.
-    ''',
-    'version': '19.0.1.1.0',
+    """,
+    'version': '19.0.1.2.7',
     'category': 'Tools/Utils',
-    'license': 'LGPL-3', 
+    'license': 'LGPL-3',
     'author': 'MuK IT',
     'website': 'http://www.mukit.at',
     'live_test_url': 'https://my.mukit.at/r/f6m',
@@ -15,7 +15,7 @@
         'Mathias Markl <mathias.markl@mukit.at>',
     ],
     'depends': [
-        'web',
+        'web_tour',
         'base_setup',
     ],
     'data': [
@@ -35,19 +35,26 @@
                 'muk_web_utils/static/src/views/list/list_renderer.xml',
             ),
             (
-                'after', 
+                'after',
                 'web/static/src/views/fields/many2one/many2one_field.js',
                 'muk_web_utils/static/src/views/fields/many2one/many2one.js',
             ),
             (
-                'after', 
+                'after',
                 'web/static/src/views/fields/x2many/x2many_field.js',
                 'muk_web_utils/static/src/views/fields/x2many/x2many.js',
             ),
+            'muk_web_utils/static/src/tour/**/*',
             'muk_web_utils/static/src/webclient/**/*',
+            'muk_web_utils/static/src/views/module_availability.js',
+            'muk_web_utils/static/src/views/fields/domain/*',
             'muk_web_utils/static/src/views/fields/json/*',
+            'muk_web_utils/static/src/views/fields/module_link/*',
             'muk_web_utils/static/src/views/fields/text_icons/*',
             'muk_web_utils/static/src/views/fields/selection_icons/*',
+        ],
+        'web.assets_unit_tests': [
+            'muk_web_utils/static/tests/**/*',
         ],
     },
     'images': [

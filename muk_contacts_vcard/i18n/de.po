@@ -6,8 +6,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0+e\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-11-26 16:30+0000\n"
-"PO-Revision-Date: 2025-11-26 16:30+0000\n"
+"POT-Creation-Date: 2025-12-16 07:35+0000\n"
+"PO-Revision-Date: 2025-12-16 07:35+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "MIME-Version: 1.0\n"
@@ -22,7 +22,7 @@ msgid ""
 "title=\"Contact Name\"/>"
 msgstr ""
 "<i class=\"fa fa-fw me-1 fa-user text-primary d-none d-sm-inline-block\" "
-"title=\"Contact Name\"/>"
+"title=\"Kontaktname\"/>"
 
 #. module: muk_contacts_vcard
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_muk_contacts_vcard_honorific__shortcut
@@ -136,7 +136,7 @@ msgstr "Vorname"
 #. module: muk_contacts_vcard
 #: model:ir.model.fields.selection,name:muk_contacts_vcard.selection__muk_contacts_vcard_honorific__position__following
 msgid "Following"
-msgstr "Folgendes"
+msgstr "Nachgestellt"
 
 #. module: muk_contacts_vcard
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__formatted_name
@@ -226,6 +226,11 @@ msgid "Middlename"
 msgstr "Zweiter Vorname"
 
 #. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_form
+msgid "Mobile"
+msgstr "Mobil"
+
+#. module: muk_contacts_vcard
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__name
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_users__name
 msgid "Name"
@@ -253,10 +258,21 @@ msgid "Personal Information"
 msgstr "Persönliche Informationen"
 
 #. module: muk_contacts_vcard
+#: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__mobile
+#: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_users__mobile
+msgid "Phone (Mobile)"
+msgstr "Telefon (Mobil)"
+
+#. module: muk_contacts_vcard
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__phone2
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_users__phone2
 msgid "Phone (Private)"
 msgstr "Telefon (Privat)"
+
+#. module: muk_contacts_vcard
+#: model_terms:ir.ui.view,arch_db:muk_contacts_vcard.view_partner_search
+msgid "Phone/Mobile"
+msgstr "Telefon/Mobil"
 
 #. module: muk_contacts_vcard
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_muk_contacts_vcard_honorific__position
@@ -329,7 +345,13 @@ msgid "e.g. home@example.com"
 msgstr "z.B. home@example.com"
 
 #. module: muk_contacts_vcard
+#: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__vcard_modified
+#: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_users__vcard_modified
+msgid "vCard Modified"
+msgstr "vCard geändert"
+
+#. module: muk_contacts_vcard
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_partner__vcard_uid
 #: model:ir.model.fields,field_description:muk_contacts_vcard.field_res_users__vcard_uid
 msgid "vCard UID"
-msgstr "vCard UID"
+msgstr "vCard-UID"
