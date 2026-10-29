@@ -51,7 +51,7 @@ Everything lives under **MuK AI** in the app menu:
 - **Chat** — the main client action (also reachable at ``/odoo/ai``).
 - **Agents** — named presets (system prompt, model, tool filter,
   approval mode, suggestions).
-- **Reports** *(system)* — Sessions, Tool Logs, Approval Log.
+- **Reports** *(system)* — Sessions, Tool Logs, Approval Logs.
 - **MCP** *(system)* — the underlying tool Registry and Playground
   from ``muk_mcp``.
 - **Configuration** *(system)* — Providers, Models, Spaces.
@@ -76,6 +76,13 @@ Configuration
   fresh worker.
 - **Cost Limit** — maximum spend per user turn in the model's price
   currency (``0`` disables).
+- **Monthly Budget** — maximum spend per calendar month of all users
+  together and of each user (``0`` disables). A user's own budget, set in
+  *MuK AI > Configuration > Budgets*, replaces the one per user. A chat that
+  reaches a budget stops with an error; *MuK AI > Reports > Usage* shows the
+  spend per user and month.
+- **Delete Old Usage** — the months of usage kept besides the current one
+  (default ``6``).
 
 The same page lists the installable **MuK AI extensions** (MCP,
 Compatible Providers, Mistral, Schedule, Skills, Voice, Workflows) as
@@ -275,7 +282,7 @@ proposed JSON arguments, and three buttons:
 - **Reject** — returns a ``rejected_by_user`` tool output so the model
   can recover (clarify, propose a safer alternative).
 
-Every decision is recorded under *MuK AI > Reports > Approval Log*
+Every decision is recorded under *MuK AI > Reports > Approval Logs*
 with the proposed vs. executed arguments. Per-agent **Approval Mode**
 lets unattended agents skip the prompt (``Never ask``). Approvals do
 not persist across sessions — each new session starts with an empty
@@ -314,11 +321,14 @@ icon. Images render inline, PDFs and text files show as pills. On
 send, every attachment is streamed to the active provider as a native
 content block — ``input_image`` / ``input_file`` for OpenAI Responses,
 ``image`` / ``document`` blocks for Anthropic Messages, inline base64
-for Gemini, inline text for small ``.txt`` / ``.csv`` / ``.md`` files.
-Accepted types: PNG, JPEG, WebP, GIF, PDF, plain text, CSV, Markdown.
-Capped at 128 MiB per file with oversize and unknown-type uploads
-rejected server-side. Text files are inlined and truncated past
-256 KiB.
+for Gemini, inline text for text files and Office documents.
+Accepted types: PNG, JPEG, WebP, GIF, PDF, any text file (CSV,
+Markdown, JSON, XML, source code, HTML pages with their scripts left
+out, emails), and Word, Excel, PowerPoint and OpenDocument files, whose
+text is read. A file of an unknown type whose content is text is read
+as plain text. Capped at 128 MiB per file with oversize and
+unknown-type uploads rejected server-side. Text is inlined and
+truncated past 256 KiB.
 
 **Human-in-the-loop**
 
@@ -354,8 +364,13 @@ Start a message with ``/`` to open a pop-up of available commands:
 Open *MuK AI > Agents*. An agent is a named preset:
 
 - **System Prompt** — rendered with inline-template placeholders
-  (``{{ user.name }}``, ``{{ company.name }}``, ``{{ today }}``,
-  ``{{ approval_mode }}``) at session start and on ``/compact``.
+  (``{{ user.name }}``, ``{{ company.name }}``) at session start and on
+  ``/compact``. The **Insert Field** button picks a field of a variable
+  and adds its placeholder at the cursor. The date, the user, the
+  language, the company and the approval mode are stated in a runtime
+  block that follows the prompt; a value that differs per user or per
+  day keeps the text after it from being cached, so it belongs late in
+  the prompt.
 - **Provider** — pin the agent to a vendor without naming an exact
   model. Every modality then prefers that provider's default and only
   falls back elsewhere when it catalogues no model of that kind, so an
@@ -470,9 +485,9 @@ override.
 Runtime context block
 =====================
 
-Alongside the agent's system prompt and ``<available_tools>`` list,
-each session injects a short ``<runtime>`` block stating the current
-Odoo version, today's date, the user (id, timezone), the company
+After the agent's system prompt and ``<available_tools>`` list, each
+session appends a short ``<runtime>`` block stating the current Odoo
+version, today's date, the user (id, timezone, language), the company
 (id), the active approval mode, and — when relevant — the list of
 companies the user can access (with a hint to pass
 ``allowed_company_ids`` for cross-company searches). This means the

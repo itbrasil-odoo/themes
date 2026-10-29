@@ -80,6 +80,43 @@ test('executes a matching action and submits the result', async () => {
     expect(calls[0].args).toEqual([11, 'c1', { ok: true }]);
 });
 
+test('the actions of one batch run and reach the session one after the other', async () => {
+    const steps = [];
+    let release;
+    openChats([11]);
+    const listener = makeClientToolListener({
+        orm: {
+            call: async (model, method, args) => {
+                steps.push(`start ${args[1]}`);
+                if (args[1] === 'b1') {
+                    await new Promise((resolve) => (release = resolve));
+                }
+                steps.push(`end ${args[1]}`);
+                return {};
+            },
+        },
+        contains: () => true,
+        execute: async (name, { step }) => {
+            steps.push(`run ${step}`);
+            return { ok: true };
+        },
+    });
+    listener(actionEvent({}, { call_id: 'b1', arguments: { step: 'b1' } }));
+    listener(actionEvent({}, { call_id: 'b2', arguments: { step: 'b2' } }));
+    await waitUntil(() => release);
+    expect(steps).toEqual(['run b1', 'start b1']);
+    release();
+    await waitUntil(() => steps.length === 6);
+    expect(steps).toEqual([
+        'run b1',
+        'start b1',
+        'end b1',
+        'run b2',
+        'start b2',
+        'end b2',
+    ]);
+});
+
 test('ignores events for sessions this tab does not hold', async () => {
     const { listener, calls } = makeHarness({ sessionIds: [99] });
     listener(actionEvent());

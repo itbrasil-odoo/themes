@@ -11,7 +11,7 @@ import { fileToBase64 } from '@muk_ai/core/attachment/file_helpers';
 import { renderMarkdown as renderMarkdownToHtml } from '@muk_ai/core/markdown/markdown';
 import { formatError } from '@muk_ai/chat/utils';
 
-import { buildRenderedTurns } from '@muk_ai/chat/session/turns';
+import { buildRenderedTurns, toolBlockDecorators } from '@muk_ai/chat/session/turns';
 import { useOpenSession } from '@muk_ai/chat/session/open_sessions';
 import { useSessionChannel } from '@muk_ai/chat/session/session_channel';
 
@@ -140,6 +140,7 @@ const WRITE_ACTIONS = [
     'approveForSession',
     'rejectTool',
     'answerWithOption',
+    'pickOption',
     'respondYesno',
     'runStopCompact',
     'runUndoToEvent',
@@ -196,6 +197,7 @@ export function useAiSession(options = {}) {
         hasMoreOlder: false,
         loadingOlder: false,
         pendingAsk: null,
+        picks: {},
         error: null,
         input: '',
         iterationCount: 0,
@@ -356,10 +358,17 @@ export function useAiSession(options = {}) {
                 return;
             }
             if (!state.streamingTools.some((t) => t.callId === callId)) {
-                state.streamingTools = [
-                    ...state.streamingTools,
-                    { callId, name: event.payload?.name || '', argsBuffer: '' },
-                ];
+                const block = {
+                    type: 'tool',
+                    name: event.payload?.name || '',
+                    arguments: '',
+                    callId,
+                    result: null,
+                };
+                for (const decorate of toolBlockDecorators.getAll()) {
+                    decorate(block, {});
+                }
+                state.streamingTools = [...state.streamingTools, block];
                 bumpStreamActivity();
                 requestScroll();
             }
@@ -368,11 +377,10 @@ export function useAiSession(options = {}) {
             if (!callId || !delta) {
                 return;
             }
-            state.streamingTools = state.streamingTools.map((t) =>
-                t.callId === callId
-                    ? { ...t, argsBuffer: (t.argsBuffer || '') + delta }
-                    : t,
-            );
+            const tool = state.streamingTools.find((t) => t.callId === callId);
+            if (tool) {
+                tool.arguments += delta;
+            }
             bumpStreamActivity();
             requestScroll();
         } else if (event.type === 'tool_call_result') {
@@ -380,11 +388,13 @@ export function useAiSession(options = {}) {
             if (!callId) {
                 return;
             }
-            state.streamingTools = state.streamingTools.map((t) =>
-                t.callId === callId
-                    ? { ...t, done: true, result: result === undefined ? null : result }
-                    : t,
-            );
+            const tool = state.streamingTools.find((t) => t.callId === callId);
+            if (tool) {
+                Object.assign(tool, {
+                    done: true,
+                    result: result === undefined ? null : result,
+                });
+            }
             bumpStreamActivity();
             requestScroll();
         } else if (event.type === 'state') {
@@ -1233,6 +1243,15 @@ export function useAiSession(options = {}) {
         state.input = option;
         await onSend();
     }
+    function pickOption(block, option) {
+        if (block.resolution !== 'multiple') {
+            return answerWithOption(option);
+        }
+        const picks = state.picks[block.callId] || [];
+        state.picks[block.callId] = picks.includes(option)
+            ? picks.filter((pick) => pick !== option)
+            : [...picks, option];
+    }
     async function respondYesno(decision) {
         const pending = state.pendingAsk || {};
         if (pending.kind === 'approval') {
@@ -1289,7 +1308,7 @@ export function useAiSession(options = {}) {
             type: 'ir.actions.act_window',
             res_model: ctx.model,
         };
-        if (ctx.kind === 'record' && ctx.id) {
+        if (ctx.id) {
             action.res_id = ctx.id;
             action.view_mode = 'form';
             action.views = [[false, 'form']];
@@ -1733,6 +1752,7 @@ export function useAiSession(options = {}) {
         approveForSession,
         rejectTool,
         answerWithOption,
+        pickOption,
         respondYesno,
         runStopCompact,
         runUndoToEvent,

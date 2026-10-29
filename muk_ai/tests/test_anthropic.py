@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from collections.abc import Sequence
 from unittest.mock import MagicMock, patch
 
@@ -399,6 +400,47 @@ class TestAiAnthropicProvider(AITestCommon):
         text_deltas = [p['delta'] for (k, p) in deltas if k == 'text']
         self.assertTrue(any('Max Tokens' in d for d in text_deltas))
 
+    def test_anthropic_call_cut_at_the_token_cap_asks_for_smaller_calls(self):
+        for stop, error in (
+            ('max_tokens', 'output token limit'),
+            ('tool_use', 'Malformed JSON'),
+        ):
+            events = [
+                {'type': 'message_start', 'message': {'usage': {'input_tokens': 7}}},
+                {
+                    'type': 'content_block_start',
+                    'index': 0,
+                    'content_block': {'type': 'tool_use', 'id': 'c1', 'name': 'w'},
+                },
+                {
+                    'type': 'content_block_delta',
+                    'index': 0,
+                    'delta': {
+                        'type': 'input_json_delta',
+                        'partial_json': '{"html": "<',
+                    },
+                },
+                {
+                    'type': 'message_delta',
+                    'delta': {'stop_reason': stop},
+                    'usage': {'output_tokens': 4096},
+                },
+                {'type': 'message_stop'},
+            ]
+            sse = [f'data: {json.dumps(event)}' for event in events]
+            response = MagicMock()
+            response.iter_lines.return_value = iter(sse)
+            response.raise_for_status.return_value = None
+            with (
+                self.subTest(stop=stop),
+                patch.object(requests.Session, 'post', return_value=response),
+            ):
+                result = self.provider._request_responses(
+                    inputs=[], on_delta=lambda kind, payload: None
+                )
+                self.assertIn(error, result['tool_calls'][0]['_parse_error'])
+                self.assertNotIn('Max Tokens', result['text'])
+
     def test_anthropic_injects_web_search_tool(self):
         captured = {}
 
@@ -642,3 +684,92 @@ class TestAiAnthropicProvider(AITestCommon):
             ],
         )
         self.assertEqual([p['delta'] for k, p in deltas if k == 'reasoning'], ['step'])
+
+    def _stream_events(self, events: list[dict]) -> tuple[dict, list]:
+        """Stream ``events`` through the provider and return the result and deltas."""
+        response = MagicMock()
+        response.iter_lines.return_value = iter(
+            [f'data: {json.dumps(event)}' for event in events]
+        )
+        response.raise_for_status.return_value = None
+        deltas = []
+        with patch.object(requests.Session, 'post', return_value=response):
+            result = self.provider._request_responses(
+                inputs=[],
+                on_delta=lambda kind, payload: deltas.append((kind, payload)),
+            )
+        return result, deltas
+
+    def _block_events(self, index: int, block: dict, *deltas: dict) -> list[dict]:
+        """Return the stream events of one content block."""
+        return [
+            {'type': 'content_block_start', 'index': index, 'content_block': block},
+            *(
+                {'type': 'content_block_delta', 'index': index, 'delta': delta}
+                for delta in deltas
+            ),
+            {'type': 'content_block_stop', 'index': index},
+        ]
+
+    def _end_events(self, stop: str = 'end_turn') -> list[dict]:
+        """Return the stream events that close a message."""
+        return [
+            {'type': 'message_delta', 'delta': {'stop_reason': stop}},
+            {'type': 'message_stop'},
+        ]
+
+    def test_a_server_tool_call_without_its_result_is_not_replayed(self):
+        result, _deltas = self._stream_events(
+            [
+                *self._block_events(
+                    0,
+                    {'type': 'server_tool_use', 'id': 'srv_1', 'name': 'web_search'},
+                    {'type': 'input_json_delta', 'partial_json': '{"query": "x"}'},
+                ),
+                *self._block_events(
+                    1,
+                    {'type': 'tool_use', 'id': 'toolu_1', 'name': 'do_x'},
+                    {'type': 'input_json_delta', 'partial_json': '{}'},
+                ),
+                *self._end_events('tool_use'),
+            ]
+        )
+        self.assertEqual(
+            result['carry_inputs'],
+            [
+                {
+                    'type': 'function_call',
+                    'name': 'do_x',
+                    'arguments': '{}',
+                    'call_id': 'toolu_1',
+                }
+            ],
+        )
+
+    def test_text_after_a_server_tool_starts_a_new_paragraph(self):
+        text = {'type': 'text', 'text': ''}
+        result, deltas = self._stream_events(
+            [
+                *self._block_events(
+                    0, text, {'type': 'text_delta', 'text': 'Searching now.'}
+                ),
+                *self._block_events(
+                    1,
+                    {'type': 'server_tool_use', 'id': 'srv_1', 'name': 'web_search'},
+                    {'type': 'input_json_delta', 'partial_json': '{"query": "x"}'},
+                ),
+                *self._block_events(
+                    2, {'type': 'web_search_tool_result', 'tool_use_id': 'srv_1'}
+                ),
+                *self._block_events(3, text, {'type': 'text_delta', 'text': 'Summary'}),
+                *self._block_events(
+                    4, text, {'type': 'text_delta', 'text': ' with a citation.'}
+                ),
+                *self._end_events(),
+            ]
+        )
+        expected = 'Searching now.\n\nSummary with a citation.'
+        self.assertEqual(result['text'], expected)
+        self.assertEqual(
+            ''.join(data['delta'] for kind, data in deltas if kind == 'text'), expected
+        )

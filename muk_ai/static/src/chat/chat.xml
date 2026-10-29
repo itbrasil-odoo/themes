@@ -99,6 +99,7 @@
                                     <div class="mk_empty_badge d-inline-flex align-items-center justify-content-center rounded-circle shadow-sm mb-3">
                                         <i class="fa fa-comments-o"/>
                                     </div>
+                                    <p t-if="session.state.agentName" class="fw-semibold text-body mb-1" t-esc="session.state.agentName"/>
                                     <p t-if="suggestions.length" class="text-muted mb-3">Type a message below or pick a suggestion.</p>
                                     <p t-else="" class="text-muted mb-3">Type a message below to begin.</p>
                                     <div t-if="suggestions.length" class="mk_suggestions">
@@ -120,7 +121,7 @@
                                 <div class="mk_turn mk_turn_assistant">
                                     <t t-foreach="session.state.streamingTools" t-as="tool" t-key="tool.callId">
                                         <ToolCard
-                                            block="{ name: tool.name, arguments: tool.argsBuffer, callId: tool.callId, result: tool.done ? tool.result : null }"
+                                            block="tool"
                                             streaming="!tool.done"
                                         />
                                     </t>
@@ -518,6 +519,11 @@
                             <t t-set="block" t-value="block"/>
                         </t>
                     </t>
+                    <div t-elif="item.type === 'images'" class="mk_tool_images d-flex flex-wrap align-items-start gap-2">
+                        <a t-foreach="block.images" t-as="image" t-key="image.url" t-att-href="image.url" target="_blank" t-att-title="image.name">
+                            <img class="mk_tool_image border rounded" t-att-src="image.url" t-att-alt="image.name"/>
+                        </a>
+                    </div>
                 </t>
                 <div
                     class="mk_bubble_attachments d-flex flex-wrap gap-2 mt-2"
@@ -657,11 +663,25 @@
                     <t t-foreach="block.options" t-as="opt" t-key="opt_index">
                         <button
                             class="btn btn-sm btn-outline-primary mk_ask_option"
+                            t-att-class="{ active: session.state.picks[block.callId]?.includes(opt) }"
                             t-att-disabled="!session.canWrite() or session.state.status === 'running' or session.state.pendingAsk?.call_id !== block.callId"
-                            t-on-click="() => this.session.answerWithOption(opt)"
-                            t-esc="opt"
-                        />
+                            t-on-click="() => this.session.pickOption(block, opt)"
+                        >
+                            <input
+                                t-if="block.resolution === 'multiple'"
+                                type="checkbox"
+                                class="form-check-input pe-none me-1"
+                                t-att-checked="session.state.picks[block.callId]?.includes(opt)"
+                            />
+                            <t t-esc="opt"/>
+                        </button>
                     </t>
+                    <button
+                        t-if="block.resolution === 'multiple'"
+                        class="btn btn-sm btn-primary mk_ask_send"
+                        t-att-disabled="!session.canWrite() or session.state.status === 'running' or session.state.pendingAsk?.call_id !== block.callId"
+                        t-on-click="() => this.session.answerWithOption(block.options.filter((opt) => session.state.picks[block.callId]?.includes(opt)).join(', '))"
+                    >Send</button>
                 </div>
                 <t t-call="muk_ai.ChatMsgMeta">
                     <t t-set="meta_at" t-value="block.at || turn.at"/>

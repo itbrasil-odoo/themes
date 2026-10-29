@@ -393,7 +393,9 @@ class Skill(models.Model):
     # ----------------------------------------------------------
 
     @api.model
-    def fetch_skills(self, skill_type: str) -> list[dict]:
+    def fetch_skills(
+        self, skill_type: str, view_context: dict | None = None
+    ) -> list[dict]:
         """Return the skills a surface offers, in the order they appear.
 
         Scoped to the user rather than to a session: a surface asks for its
@@ -401,6 +403,8 @@ class Skill(models.Model):
         rather than discovered by an agent.
 
         :param skill_type: the surface asking, see the ``skill_type`` field
+        :param view_context: what the surface has open, to offer only the
+            skills whose scope it satisfies
         :return: descriptors carrying what a surface needs to offer a skill
         """
         domain = [('active', '=', True), ('skill_type', '=', skill_type)]
@@ -408,6 +412,10 @@ class Skill(models.Model):
         skills = self.env['muk_ai.session']._dedupe_visible_skills(
             self.sudo().search(domain), self.env.user
         )
+        if view_context is not None:
+            skills = skills.filtered(
+                lambda skill: skill._scope_satisfied_by(view_context)
+            )
         return [skill._skill_descriptor() for skill in skills]
 
     # ----------------------------------------------------------
@@ -532,9 +540,8 @@ class Skill(models.Model):
 
         :raise ValidationError: when the name does not match [a-z][a-z0-9_]*
         """
-        name_check = re.compile(r'^[a-z][a-z0-9_]*$')
         for record in self:
-            if not record.name or not name_check.match(record.name):
+            if not re.fullmatch(r'[a-z][a-z0-9_]*', record.name or ''):
                 raise ValidationError(
                     _(
                         'Skill name %(name)r must match [a-z][a-z0-9_]*.',
