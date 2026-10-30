@@ -19,11 +19,11 @@ from odoo.addons.muk_ai.tests.common import AITestCommon
 from odoo.addons.muk_ai.tools import (
     ADVISORY_LOCK_NAMESPACE,
     MAX_ITERATIONS,
+    VIEW_KINDS,
     WALLCLOCK_MIN_SECONDS,
     WALLCLOCK_SAFETY_MARGIN,
     WORKER_STALE_THRESHOLD,
-    format_ui_ctx_tag,
-    render_ui_ctx,
+    with_ui_ctx,
 )
 
 
@@ -1217,6 +1217,16 @@ class TestAiSession(AITestCommon):
         self.assertEqual(session.view_context.get('id'), 99)
         self.assertEqual(snapshot['view_context']['model'], 'res.partner')
 
+    def test_pinning_the_view_already_pinned_writes_nothing(self):
+        session = self.env['muk_ai.session'].create({'name': 'repin'})
+        payload = {'kind': 'record', 'model': 'res.partner', 'id': 7}
+        with patch.object(type(session), '_publish_event', autospec=True) as publish:
+            for _repeat in range(2):
+                session.set_view_context(payload)
+        self.assertEqual(
+            [call.args[1] for call in publish.call_args_list], ['view_context']
+        )
+
     def test_set_view_context_clears_on_none(self):
         session = self.env['muk_ai.session'].create({'name': 'clear-ctx'})
         session.view_context = {
@@ -1252,20 +1262,20 @@ class TestAiSession(AITestCommon):
         self.assertEqual(last_entry.get('kind'), 'command')
         self.assertEqual(last_entry.get('name'), '/unpin')
 
-    def test_render_ui_ctx_returns_none_when_empty(self):
-        self.assertIsNone(render_ui_ctx(None))
-        self.assertIsNone(render_ui_ctx({}))
-        self.assertIsNone(format_ui_ctx_tag({}))
-
-    def test_render_ui_ctx_formats_list(self):
-        tag = format_ui_ctx_tag(
+    def test_with_ui_ctx_appends_only_a_known_view(self):
+        for payload in (None, {}, {'kind': 'banana', 'model': 'sale.order'}):
+            self.assertEqual(with_ui_ctx([], payload, VIEW_KINDS), [])
+        [message] = with_ui_ctx(
+            [],
             {
                 'kind': 'list',
                 'model': 'sale.order',
                 'view_type': 'kanban',
                 'domain': [['state', '=', 'sale']],
-            }
+            },
+            VIEW_KINDS,
         )
+        tag = message['content'][0]['text']
         self.assertTrue(tag.startswith('<ui_ctx>'))
         self.assertIn('sale.order', tag)
         self.assertIn('kanban', tag)
@@ -1445,6 +1455,7 @@ class TestAiSession(AITestCommon):
             session.start('question 1')
         with self._patch_provider([self._text_payload('answer 2')]):
             session.send_message('question 2')
+        session.write({'total_cost': 1.0, 'iteration_count': 2})
         events = session.event_ids.sorted('sequence')
         second_user = next(
             event
@@ -1476,6 +1487,7 @@ class TestAiSession(AITestCommon):
         ]
         self.assertEqual(len(original_users), 2)
         self.assertEqual(fork.state, 'done')
+        self.assertEqual((fork.total_cost, fork.iteration_count), (0, 0))
 
     def test_fork_at_event_preserves_agent(self):
         agent = self.env['muk_ai.agent']._get_default()
@@ -2312,6 +2324,39 @@ class TestAiSession(AITestCommon):
             [{'call_id': 'c1', 'name': 'read_records', 'arguments': {}}], outputs, 0
         )
         self.assertIn('tool_not_offered', outputs[0]['output'])
+
+    def test_an_unloaded_tool_called_with_wrong_types_is_loaded_not_run(self):
+        agent = self.env['muk_ai.agent'].create(
+            {
+                'name': 'Deferred',
+                'tool_filter': ['search_count', 'read_records'],
+                'essential_tool_names': ['search_count'],
+            }
+        )
+        partner = self.env['res.partner'].create({'name': 'Deferred Partner'})
+        arguments = {'model': 'res.partner', 'fields': ['name']}
+        for ids, expected, loaded in (
+            ([partner.id], 'Deferred Partner', []),
+            (f'[{partner.id}]', 'ids must be array', ['read_records']),
+        ):
+            with self.subTest(ids=ids):
+                session = self.env['muk_ai.session'].create(
+                    {'name': 'deferred', 'agent_id': agent.id}
+                )
+                outputs = []
+                session._process_tool_round(
+                    [
+                        {
+                            'call_id': 'c1',
+                            'name': 'read_records',
+                            'arguments': {**arguments, 'ids': ids},
+                        }
+                    ],
+                    outputs,
+                    0,
+                )
+                self.assertIn(expected, outputs[0]['output'])
+                self.assertEqual(session.expanded_tool_names or [], loaded)
 
     # ----------------------------------------------------------
     # Tests: turn limit warnings and cost budget

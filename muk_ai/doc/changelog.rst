@@ -1,3 +1,18 @@
+`1.27.0`
+-------
+
+- Monthly Budgets
+
+`1.26.0`
+-------
+
+- Multiple Choice Questions
+
+`1.25.0`
+-------
+
+- Insert Field in Prompts
+
 `1.24.0`
 -------
 

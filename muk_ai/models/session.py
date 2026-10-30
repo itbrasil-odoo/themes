@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import random
 import re
 import threading
@@ -24,7 +25,6 @@ from odoo.tools import SQL, config, create_index, mute_logger
 
 from odoo.addons.muk_ai.tools import (
     ADVISORY_LOCK_NAMESPACE,
-    ALLOWED_MIMETYPES,
     ASK_USER_TOOL,
     ATTACHMENT_REF_MAX_BYTES,
     ATTACHMENT_REF_RE,
@@ -45,12 +45,14 @@ from odoo.addons.muk_ai.tools import (
     MAX_TOOL_CALLS_PER_ROUND,
     MAX_WALLCLOCK_SECONDS,
     REASONING_EFFORT_SELECTION,
+    STREAM_STOP_MARGIN,
     TERMINATING_TOOLS,
     TOOL_LOAD_TOOL,
     TOOL_VISION_MAX_B64_CHARS,
     TOOL_VISION_MAX_IMAGES,
     TURN_WALLCLOCK_SECONDS,
     URL_REF_RE,
+    VIEW_KINDS,
     WALLCLOCK_MIN_SECONDS,
     WALLCLOCK_SAFETY_MARGIN,
     WORKER_HEARTBEAT_INTERVAL,
@@ -66,6 +68,7 @@ from odoo.addons.muk_ai.tools import (
     format_tool_signature,
     is_unmaterialized_attachment,
     sanitize_json_schema,
+    schema_type_mismatches,
     summarize_tool_description,
     tool_file_payload,
     with_ui_ctx,
@@ -423,6 +426,7 @@ class AISession(models.Model):
         string='Iterations',
         readonly=True,
         default=0,
+        copy=False,
     )
 
     turn_wallclock_spent = fields.Float(
@@ -454,16 +458,18 @@ class AISession(models.Model):
         string='Input Tokens',
         readonly=True,
         default=0,
+        copy=False,
     )
 
     total_output_tokens = fields.Integer(
         string='Output Tokens',
         readonly=True,
         default=0,
+        copy=False,
     )
 
     total_input_cost = fields.Float(
-        string='Input Cost (USD)',
+        string='Input Cost',
         help=(
             'Cumulative USD spent on input tokens for this session. '
             'Frozen at accrual time against the model record that was '
@@ -472,22 +478,25 @@ class AISession(models.Model):
         readonly=True,
         default=0.0,
         digits=(12, 6),
+        copy=False,
     )
 
     total_output_cost = fields.Float(
-        string='Output Cost (USD)',
+        string='Output Cost',
         help='Cumulative USD spent on output tokens for this session.',
         readonly=True,
         default=0.0,
         digits=(12, 6),
+        copy=False,
     )
 
     total_cost = fields.Float(
-        string='Total Cost (USD)',
+        string='Total Cost',
         help='Cumulative USD for this session (input + output).',
         readonly=True,
         default=0.0,
         digits=(12, 6),
+        copy=False,
     )
 
     last_input_tokens = fields.Integer(
@@ -666,10 +675,8 @@ class AISession(models.Model):
                 'Web search: unavailable — say so plainly instead of '
                 'guessing at facts that may have moved on.'
             )
-        if (
-            self._tool_source_enabled('image_generation')
-            and agent._resolve_model_for('image')
-            and agent._admits_tool('generate_image')
+        if self._tool_source_enabled('image_generation') and agent._resolve_model_for(
+            'image'
         ):
             lines.append('Image generation: available through generate_image.')
         if self._tool_source_enabled('code_interpreter') and (
@@ -682,14 +689,20 @@ class AISession(models.Model):
         return lines
 
     def _build_runtime_block(self) -> str:
-        """Build the prompt block stating runtime facts about the session."""
+        """Build the prompt block stating runtime facts about the session.
+
+        The user is the one the tools act for, who is not always the owner.
+        """
+        env = self._tool_dispatch_env()
+        user, company = env.user, env.company
         lines = [
             '<runtime>',
             'Facts about this session. Use them directly; do not look them up.',
             f'Odoo: {release.version}',
             f'Date: {fields.Date.context_today(self).isoformat()}',
-            f'User: {self.env.user.name} (res.users,{self.env.user.id}) — tz {self.env.user.tz or "UTC"}',
-            f'Company: {self.env.company.name} (res.company,{self.env.company.id})',
+            f'User: {user.name} (res.users,{user.id}) - tz {user.tz or "UTC"}',
+            f'Language: {user.lang}',
+            f'Company: {company.name} (res.company,{company.id})',
             f'Approval mode: {self._effective_approval_mode() if self and self.id else "ask"}',
         ]
         if (
@@ -699,8 +712,8 @@ class AISession(models.Model):
         ):
             models_list = ', '.join(sorted(gated.mapped('model')))
             lines.append(f'Approval gate (the system asks the user): {models_list}')
-        if len(self.env.user.company_ids) > 1:
-            names = ', '.join(self.env.user.company_ids.sorted('id').mapped('name'))
+        if len(user.company_ids) > 1:
+            names = ', '.join(user.company_ids.sorted('id').mapped('name'))
             lines.append(f'Companies accessible: {names}')
         lines.extend(self._runtime_capability_lines())
         lines.append('</runtime>')
@@ -920,14 +933,18 @@ class AISession(models.Model):
         return {'role': 'user', 'content': content} if content else None
 
     def _system_message(self) -> dict:
-        """Return the system message rebuilt from the current agent and context."""
+        """Return the system message rebuilt from the current agent and context.
+
+        The parts run from the most to the least widely shared, so a provider
+        can reuse the longest cached prefix: the runtime facts come last.
+        """
         parts = [
             self._effective_system_prompt(),
+            self._build_files_block(),
+            self._build_available_tools_block(),
             self._build_space_block(),
             *self._system_prompt_addenda(),
             self._build_runtime_block(),
-            self._build_files_block(),
-            self._build_available_tools_block(),
         ]
         return {
             'role': 'system',
@@ -1061,7 +1078,8 @@ class AISession(models.Model):
     def _get_tool_schema(self) -> list[dict]:
         """Build the function schema list for currently loaded tools.
 
-        ``ask_user`` always rides along: asking is not approving.
+        ``ask_user`` rides along wherever somebody can answer: asking is not
+        approving.
         """
         catalog_by_name = {
             entry['name']: entry for entry in self._get_filtered_catalog()
@@ -1072,7 +1090,7 @@ class AISession(models.Model):
         ]
         if set(catalog_by_name) - loaded:
             result.append(self._tool_entry_to_schema(TOOL_LOAD_TOOL))
-        if 'ask_user' not in loaded:
+        if self._can_ask_user():
             result.append(self._tool_entry_to_schema(ASK_USER_TOOL))
         return result
 
@@ -1090,7 +1108,7 @@ class AISession(models.Model):
         ]
         return [
             self._system_message(),
-            *with_ui_ctx(history, self.view_context),
+            *with_ui_ctx(history, self.view_context, self._view_kinds()),
         ]
 
     # ----------------------------------------------------------
@@ -1268,9 +1286,11 @@ class AISession(models.Model):
             self.pending_ids or self.env.context.get('muk_ai_skip_done_notification')
         ):
             return
-        if new_state in ('done', 'waiting', 'error'):
-            ask = (payload or {}).get('ask') or self.pending_ask or {}
-            ask_kind = ask.get('kind') if isinstance(ask, dict) else None
+        ask = (payload or {}).get('ask') or self.pending_ask or {}
+        ask_kind = ask.get('kind') if isinstance(ask, dict) else None
+        if new_state in ('done', 'waiting', 'error') and not (
+            new_state == 'waiting' and ask_kind == 'client_action'
+        ):
             title, message = self._notification_summary(new_state, payload, ask_kind)
             self.notification_unread = True
             with suppress(Exception):
@@ -1635,6 +1655,20 @@ class AISession(models.Model):
         return self.env.cr.fetchone()[0]
 
     @api.model
+    def _wait_session_lock(self, session_id: int) -> bool:
+        """Take the session lock, waiting a few seconds for it to free up.
+
+        An answer to a pending ask can arrive while the worker that published
+        the ask is still committing its round and has yet to release the lock.
+        """
+        deadline = time.monotonic() + 5
+        while not self._try_session_lock(session_id):
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.1)
+        return True
+
+    @api.model
     def _release_session_lock(self, session_id: int) -> None:
         """Release the session advisory lock, retrying once after rollback."""
         statement = SQL(
@@ -1759,6 +1793,14 @@ class AISession(models.Model):
         """Return the context keys threaded through tool dispatch."""
         return {'muk_mcp_session_id': self.id}
 
+    def _tool_dispatch_env(self) -> api.Environment:
+        """Return the environment tool calls run in: the chat's own, with its keys.
+
+        Extension modules narrow it: a chat run on behalf of someone else calls
+        its tools with that person's rights.
+        """
+        return self.env(context={**self.env.context, **self._tool_dispatch_context()})
+
     def _enforce_tool_scope(self) -> str | None:
         """Return the MCP scope tool calls are capped at, or ``None`` for all.
 
@@ -1796,7 +1838,7 @@ class AISession(models.Model):
                 'context': {k: v for k, v in context.items() if k not in bound},
             }
         try:
-            tool_env = self.env(context={**self.env.context, **bound})
+            tool_env = self._tool_dispatch_env()
             text, _info = tool_env['muk_mcp.tool']._call(
                 name, arguments, tool_env, enforce_scope=enforce_scope
             )
@@ -1916,6 +1958,15 @@ class AISession(models.Model):
             }
         if not isinstance(target_args, dict):
             return {'error': '`call.arguments` must be an object.'}
+        if mismatches := schema_type_mismatches(
+            target_args, loaded[target].get('inputSchema')
+        ):
+            return {
+                'error': (
+                    f'not run: {", ".join(mismatches)}. Call {target} again with '
+                    'arguments of its schema in `loaded`.'
+                )
+            }
         inline_call_id = f'{parent_call_id or "tool_load"}__{target}'
         call = {'name': target, 'arguments': target_args, 'call_id': inline_call_id}
         self._record_tool_call(call)
@@ -1999,14 +2050,20 @@ class AISession(models.Model):
                 return payload
         return None
 
+    def _view_kinds(self) -> dict:
+        """Return the view-context kinds a client may pin, with their value types."""
+        return VIEW_KINDS
+
     def _enrich_view_context(self, payload: dict) -> dict:
         """Return the view-context payload, optionally enriched by subclasses."""
         return payload
 
     def _write_view_context(self, payload: dict | None) -> None:
-        """Persist the view context and broadcast its change."""
+        """Persist the view context and broadcast its change, when it changed."""
         if payload:
             payload = self._enrich_view_context(payload)
+        if (payload or None) == (self.view_context or None):
+            return
         self.write({'view_context': payload or False})
         self._publish_event('view_context', {'view_context': payload or None})
 
@@ -2022,7 +2079,7 @@ class AISession(models.Model):
         more. The turn the round started under settles which of the two it
         is, so an answer to a replaced question is dropped, never persisted.
 
-        :raise StreamCancelled: when the session was stopped
+        :raise StreamCancelled: when the session was stopped or ``stop_at`` passed
         :raise TurnSuperseded: when a newer turn replaced this one
         """
         last = buffer_state.get('last_state_check', 0)
@@ -2038,6 +2095,8 @@ class AISession(models.Model):
             if self._turn_superseded(buffer_state):
                 buffer_state.clear()
                 raise TurnSuperseded()
+            if now > buffer_state.get('stop_at', math.inf):
+                raise StreamCancelled()
             last_beat = buffer_state.get('last_heartbeat', 0)
             if now - last_beat >= WORKER_HEARTBEAT_INTERVAL:
                 buffer_state['last_heartbeat'] = now
@@ -2217,15 +2276,18 @@ class AISession(models.Model):
         agent: models.BaseModel,
         cache: dict | None = None,
         notice: dict | None = None,
+        stop_at: float = math.inf,
     ) -> dict:
         """Run one streaming provider round, flushing buffers on completion.
 
+        :param stop_at: monotonic time the stream is cut at, to yield the slice
         :raise StreamCancelled: when the session is cancelled mid-stream
         """
         buffer_state = {
             'text': '',
             'last_text_flush': time.monotonic(),
             'turn': self.turn_seq,
+            'stop_at': stop_at,
         }
         try:
             payload = provider._request_responses(
@@ -2246,7 +2308,7 @@ class AISession(models.Model):
                 enable_code_interpreter=(
                     bool(agent) and self._code_interpreter_route() == 'native'
                 ),
-                cache_key=f'muk_ai.session:{self.id}',
+                cache_key=f'muk_ai.agent:{self.agent_id.id}:{self.user_id.id}',
             )
             self._flush_stream_buffer(buffer_state)
             return payload
@@ -2282,9 +2344,18 @@ class AISession(models.Model):
         """Return the cumulative cost field deltas for a usage payload.
 
         ``record`` prices the usage and defaults to the effective chat model.
+        A costed charge is recorded as usage of the session's owner.
         """
         if record := record or self._resolve_model_for('chat'):
             delta = record._compute_usage_cost(usage or {})
+            if delta['total_cost']:
+                self.env['muk_ai.usage'].sudo().create(
+                    {
+                        'user_id': self.user_id.id,
+                        'session_id': self.id,
+                        'amount': delta['total_cost'],
+                    }
+                )
             turn = self.turn_usage or {}
             return {
                 'turn_usage': {
@@ -2475,25 +2546,23 @@ class AISession(models.Model):
         except UserError:
             return empty
 
-    def _extract_tool_vision(self, result) -> tuple[models.BaseModel, object]:
-        """Pop image payloads from a tool result and persist them as attachments.
+    def _extract_tool_vision(self, result) -> tuple[models.BaseModel, object, bool]:
+        """Store the images of a tool result and strip them from it.
 
-        :return: the created attachments and the text-only result to send back
-            as the ``function_call_output``
+        :return: the stored images, the text-only result to send back as the
+            ``function_call_output``, and whether the model gets to see them
         """
-        empty = self.env['ir.attachment']
         specs = self._collect_tool_image_specs(result)
         if not specs:
-            return empty, result
-        if not self._vision_enabled():
-            return empty, self._note_vision_unavailable(self._strip_tool_images(result))
-        attachments = empty
+            return self.env['ir.attachment'], result, False
+        attachments = self.env['ir.attachment']
         for spec in specs[:TOOL_VISION_MAX_IMAGES]:
             attachments |= self._persist_tool_image(spec)
         cleaned = self._strip_tool_images(result)
-        if not attachments:
+        vision = bool(attachments) and self._vision_enabled()
+        if not vision:
             cleaned = self._note_vision_unavailable(cleaned)
-        return attachments, cleaned
+        return attachments, cleaned, vision
 
     @staticmethod
     def _note_vision_unavailable(cleaned) -> object:
@@ -2579,26 +2648,32 @@ class AISession(models.Model):
     def _append_tool_output_with_vision(
         self, outputs: list, call_id: str, result
     ) -> object:
-        """Append a tool output and defer any image payload for the round.
+        """Append a tool output, showing its images and holding them for the round.
 
-        Any file payload is stored first, so the ``function_call_output`` never
-        carries raw base64. The text-only result becomes the
-        ``function_call_output`` immediately.
-        Image attachments are held on the session (not appended inline) and
-        flushed by ``_flush_deferred_vision`` once every function_call_output of
-        the round is emitted, so images always follow all tool results across a
-        pause/resume boundary (providers reject a tool_result after other user
-        content).
+        Files and images are stored first, so the output never carries raw
+        base64; the images show in the chat, and a model with vision gets them
+        once every output of the round is sent (``_flush_deferred_vision``).
 
         :return: the cleaned, text-only result for event logging
         """
-        attachments, cleaned = self._extract_tool_vision(
+        attachments, cleaned, vision = self._extract_tool_vision(
             self._persist_tool_file(result)
         )
         outputs.append(
             self._bound_tool_output(build_tool_call_output(call_id, cleaned))
         )
         if attachments:
+            self._append_event(
+                {
+                    'kind': 'tool_images',
+                    'call_id': call_id,
+                    'images': [
+                        {'url': f'/web/image/{image.id}', 'name': image.name}
+                        for image in attachments
+                    ],
+                }
+            )
+        if vision:
             deferred = list(self.deferred_vision_attachment_ids or [])
             deferred += [a.id for a in attachments if a.id not in deferred]
             self.deferred_vision_attachment_ids = deferred
@@ -2644,20 +2719,22 @@ class AISession(models.Model):
     def _resolve_value_refs(self, arguments: dict) -> tuple[dict, list]:
         """Inline attachment and URL references in tool arguments.
 
-        :return: the resolved arguments and the list of resolved reference
-            descriptors carrying preview URLs
+        An attachment is inlined only when the tools may read it.
+
+        :return: the resolved arguments and the descriptors with preview URLs
         """
         refs = []
+        env = self._tool_dispatch_env()
         if isinstance(arguments, dict):
 
             def _resolve(value):
                 if isinstance(value, str):
                     if m := ATTACHMENT_REF_RE.match(value):
-                        attachment = self.env['ir.attachment'].browse(int(m.group(1)))
+                        attachment = env['ir.attachment'].browse(int(m.group(1)))
                         if not attachment.exists():
                             return value
                         try:
-                            attachment.check_access('read')
+                            attachment.check('read')
                         except AccessError:
                             return value
                         attachment = attachment.sudo()
@@ -2666,7 +2743,7 @@ class AISession(models.Model):
                             and attachment.file_size <= ATTACHMENT_REF_MAX_BYTES
                             and (
                                 not attachment.mimetype
-                                or attachment.mimetype in ALLOWED_MIMETYPES
+                                or attachment._ai_strategy_for(attachment.mimetype)
                             )
                         ):
                             refs.append(
@@ -2791,6 +2868,15 @@ class AISession(models.Model):
         self._persist_synthetic_event(call, result, 'denied')
         self._record_tool_result(
             outputs, call['call_id'], call['name'], result, log_result=log_result
+        )
+
+    def _load_mistyped_tool(self, name: str, mismatches: list[str]) -> str:
+        """Load the schema of an unloaded tool called with wrong types, asking for a retry."""
+        loaded = self._dispatch_tool_load({'names': [name]})['loaded']
+        return (
+            f'not run: {", ".join(mismatches)}. {name} is loaded now: call it '
+            'again with arguments of this schema: '
+            f'{json.dumps(loaded[name]["inputSchema"])}'
         )
 
     def _client_tool_names(self) -> set[str]:
@@ -2999,8 +3085,9 @@ class AISession(models.Model):
         has_ask_user = any(c.get('name') == 'ask_user' for c in tool_calls)
         wait_for_user, paused = False, False
         client_names = self._client_tool_names()
-        offered = {entry.get('name') for entry in self._get_filtered_catalog()}
-        offered |= client_names | {TOOL_LOAD_TOOL['name']}
+        catalog = {entry.get('name'): entry for entry in self._get_filtered_catalog()}
+        offered = set(catalog) | client_names | {TOOL_LOAD_TOOL['name']}
+        loaded = set(self._loaded_tool_names())
         for index in range(start_index, len(tool_calls)):
             call = tool_calls[index]
             if index >= MAX_TOOL_CALLS_PER_ROUND:
@@ -3042,6 +3129,17 @@ class AISession(models.Model):
                 self._record_tool_call(call)
                 self._skip_tool_call(outputs, call, 'tool_not_offered')
                 continue
+            if call['name'] not in loaded and (
+                mismatches := schema_type_mismatches(
+                    call.get('arguments'),
+                    catalog.get(call['name'], {}).get('inputSchema'),
+                )
+            ):
+                self._record_tool_call(call)
+                self._skip_tool_call(
+                    outputs, call, self._load_mistyped_tool(call['name'], mismatches)
+                )
+                continue
             if (
                 not has_ask_user
                 and not has_terminating
@@ -3069,9 +3167,7 @@ class AISession(models.Model):
                 has_ask_user, has_terminating, has_client_action=wait_for_user
             ):
                 self._record_tool_call(call)
-                self._skip_tool_call(
-                    outputs, call, skip, log_result={'error': 'skipped'}
-                )
+                self._skip_tool_call(outputs, call, skip, log_result={'skipped': True})
                 continue
             outcome = self._execute_tool_call(
                 call, tool_calls, outputs, index, has_terminating
@@ -3117,17 +3213,55 @@ class AISession(models.Model):
         record = self._resolve_model_for('chat')
         return (record and record.currency) or 'USD'
 
-    def _turn_cost_error(self, limit: float) -> None:
-        """Transition to error when the turn cost budget is reached."""
-        self._transition_state(
-            'error',
-            error=_(
+    def _cost_limit_message(self) -> str | None:
+        """Return why the chat may spend no more, or ``None`` while it may.
+
+        The turn budget comes first, then the monthly budget of the user and
+        the one of all users together.
+        """
+        params = self.env['ir.config_parameter'].sudo()
+        currency = self._cost_currency()
+        if (limit := self._turn_cost_limit()) and (
+            self.turn_cost_spent or 0.0
+        ) >= limit:
+            return _(
                 'Turn cost budget reached (%(amount).2f %(currency)s). '
                 'Send a new message to continue.',
                 amount=limit,
-                currency=self._cost_currency(),
-            ),
+                currency=currency,
+            )
+        user_limit = not self.user_id._is_superuser() and (
+            self.user_id.ai_monthly_budget
+            or float(params.get_param('muk_ai.user_monthly_budget') or 0)
         )
+        for limit, spender in (
+            (user_limit, self.user_id),
+            (float(params.get_param('muk_ai.monthly_budget') or 0), None),
+        ):
+            if (
+                not limit
+                or limit <= 0
+                or self.env['muk_ai.usage'].sudo()._spent_this_month(spender) < limit
+            ):
+                continue
+            if spender:
+                return _(
+                    'Your monthly AI budget of %(amount).2f %(currency)s is '
+                    'used up. Ask an administrator to raise it.',
+                    amount=limit,
+                    currency=currency,
+                )
+            return _(
+                'The monthly AI budget of %(amount).2f %(currency)s for all '
+                'users is used up. Ask an administrator to raise it.',
+                amount=limit,
+                currency=currency,
+            )
+        return None
+
+    def _cost_limit_error(self, message: str) -> None:
+        """Transition to error when a cost budget is reached."""
+        self._transition_state('error', error=message)
 
     def _round_limit_notice(self, remaining: int | None) -> dict | None:
         """Build a user-visible notice about remaining round and cost budget."""
@@ -3216,8 +3350,14 @@ class AISession(models.Model):
     def _run_iterations(
         self, has_terminating: bool = False, deadline: float | None = None
     ) -> None:
-        """Run provider rounds until completion, deadline, or budget limits."""
+        """Run provider rounds until completion, deadline, or budget limits.
+
+        A round still streaming shortly before the worker's time limit is cut
+        and the slice yielded, so the round runs again in a later slice.
+        """
         deadline = deadline or time.monotonic() + self._slice_wallclock_seconds()
+        hard = self._worker_hard_limit_seconds()
+        stop_at = time.monotonic() + hard - STREAM_STOP_MARGIN if hard else math.inf
         materialize_cache, provider_key = {}, None
         max_iterations = self._max_iterations()
         for iteration in range(max_iterations):
@@ -3228,10 +3368,8 @@ class AISession(models.Model):
             self._maybe_auto_compact()
             if self.state != 'running':
                 return
-            if (cost_limit := self._turn_cost_limit()) and (
-                (self.turn_cost_spent or 0.0) >= cost_limit
-            ):
-                self._turn_cost_error(cost_limit)
+            if message := self._cost_limit_message():
+                self._cost_limit_error(message)
                 return
             self.invalidate_recordset(['pending_ids', 'expanded_tool_names'])
             if self.pending_ids and self._drain_pending_message():
@@ -3254,6 +3392,7 @@ class AISession(models.Model):
                     notice=self._round_limit_notice(
                         remaining if remaining <= ITERATION_WARNING_ROUNDS else None
                     ),
+                    stop_at=stop_at,
                 )
             except TurnSuperseded:
                 raise
@@ -3468,7 +3607,7 @@ class AISession(models.Model):
 
         :raise UserError: when the session lock cannot be acquired
         """
-        if not self._try_session_lock(self.id):
+        if not self._wait_session_lock(self.id):
             raise UserError(_('The session is currently busy. Please try again.'))
         try:
             call = {
@@ -4435,7 +4574,6 @@ class AISession(models.Model):
                 'name': _('%s (fork)', self.name),
                 'conversation': new_conv,
                 'state': 'done' if new_conv else 'new',
-                'iteration_count': 0,
                 'event_ids': [(5, 0, 0)],
                 'pending_ids': [(5, 0, 0)],
             }
@@ -4501,7 +4639,7 @@ class AISession(models.Model):
         self._write_view_context(
             None
             if payload is None or kind == 'none'
-            else clean_view_context_payload(kind, payload)
+            else clean_view_context_payload(kind, payload, self._view_kinds())
         )
         return self.get_snapshot()
 
@@ -4624,7 +4762,7 @@ class AISession(models.Model):
             client action
         """
         self.check_access('write')
-        if not self._try_session_lock(self.id):
+        if not self._wait_session_lock(self.id):
             raise UserError(_('The session is currently busy. Please try again.'))
         try:
             pending = self._require_pending_client_action(call_id)
@@ -4646,7 +4784,7 @@ class AISession(models.Model):
             client action
         """
         self.check_access('write')
-        if not self._try_session_lock(self.id):
+        if not self._wait_session_lock(self.id):
             raise UserError(_('The session is currently busy. Please try again.'))
         try:
             pending = self._require_pending_client_action(call_id)

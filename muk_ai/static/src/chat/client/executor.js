@@ -23,6 +23,25 @@ export function parseArguments(raw) {
     return {};
 }
 
+const running = new Map();
+
+/**
+ * Run a session's client actions one after the other, in the order the
+ * model called them: the tools of one batch work on the same page, and the
+ * session lock turns a concurrent post away.
+ * @param {number} sessionId the paused session
+ * @param {Function} task `async () => void` the action to run
+ * @returns {Promise} the action's outcome
+ */
+function inTurn(sessionId, task) {
+    const next = (running.get(sessionId) || Promise.resolve()).then(task);
+    running.set(
+        sessionId,
+        next.catch(() => {}),
+    );
+    return next;
+}
+
 /**
  * Build a `muk_ai.event` bus listener that executes client-tool actions.
  *
@@ -44,30 +63,27 @@ export function parseArguments(raw) {
 export function makeClientToolListener({ orm, contains, execute, defer }) {
     const handled = new Set();
 
-    async function dispatch(sessionId, callId, name, rawArgs) {
+    async function run(sessionId, callId, name, rawArgs) {
+        const call = (method, args, kwargs) =>
+            orm.call('muk_ai.session', method, [sessionId, callId, ...args], kwargs);
         const args = parseArguments(rawArgs);
         if (args === null) {
-            await orm
-                .call('muk_ai.session', 'reject_client_action', [sessionId, callId], {
-                    reason: 'client received corrupt or truncated tool arguments',
-                })
-                .catch(() => {});
+            await call('reject_client_action', [], {
+                reason: 'client received corrupt or truncated tool arguments',
+            }).catch(() => {});
             return;
         }
         try {
-            const result = await execute(name, args);
-            await orm.call('muk_ai.session', 'submit_client_result', [
-                sessionId,
-                callId,
-                result,
-            ]);
+            await call('submit_client_result', [await execute(name, args)]);
         } catch (error) {
-            await orm
-                .call('muk_ai.session', 'reject_client_action', [sessionId, callId], {
-                    reason: String(error?.message || error || 'client tool failed'),
-                })
-                .catch(() => {});
+            await call('reject_client_action', [], {
+                reason: String(error?.message || error || 'client tool failed'),
+            }).catch(() => {});
         }
+    }
+
+    function dispatch(sessionId, callId, name, rawArgs) {
+        return inTurn(sessionId, () => run(sessionId, callId, name, rawArgs));
     }
 
     function dispatchOncePerBrowser(sessionId, callId, name, rawArgs) {
