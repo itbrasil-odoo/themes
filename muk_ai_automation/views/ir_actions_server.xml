@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<odoo>
+
+    <record id="view_ir_actions_server_form_agent" model="ir.ui.view">
+        <field name="name">ir.actions.server.form.agent</field>
+        <field name="model">ir.actions.server</field>
+        <field name="inherit_id" ref="base.view_server_action_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="before">
+                <group string="AI Agent" invisible="state != 'ai_agent'">
+                    <group>
+                        <field name="agent_id"
+                               options="{'no_create': True}"
+                               required="state == 'ai_agent'"/>
+                        <field name="agent_space_id"
+                               options="{'no_create': True}"
+                               placeholder="Automatic"/>
+                        <field name="agent_dispatch_mode"/>
+                        <field name="agent_record_source"/>
+                        <field name="agent_record_domain"
+                               invisible="agent_record_source != 'domain'"/>
+                        <field name="agent_max_records_per_fire"/>
+                    </group>
+                    <group>
+                        <field name="agent_chain_strategy"/>
+                    </group>
+                    <group colspan="2">
+                        <field name="agent_prompt"
+                               nolabel="1"
+                               placeholder="e.g. Summarize this record: {{ record.display_name }}"/>
+                    </group>
+                    <group colspan="2"
+                           invisible="agent_record_source != 'code'">
+                        <field name="agent_record_code"
+                               nolabel="1"
+                               widget="code"
+                               options="{'mode': 'python'}"
+                               placeholder="records = env['res.partner'].search([], limit=10)"/>
+                    </group>
+                    <group string="Caps" colspan="2">
+                        <group>
+                            <field name="agent_max_resumes"/>
+                            <field name="agent_max_lifetime_hours"/>
+                        </group>
+                        <group>
+                            <field name="agent_max_total_tokens"/>
+                            <field name="agent_max_cost_eur"/>
+                        </group>
+                    </group>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_ai_agent_action_list" model="ir.ui.view">
+        <field name="name">ir.actions.server.list.muk_ai_automation</field>
+        <field name="model">ir.actions.server</field>
+        <field name="arch" type="xml">
+            <list sample="1">
+                <field name="name"/>
+                <field name="model_id"/>
+                <field name="agent_id"/>
+                <field name="agent_dispatch_mode"/>
+                <field name="binding_model_id" string="Actions Menu"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_agent_action_kanban" model="ir.ui.view">
+        <field name="name">ir.actions.server.kanban.ai_agent.muk_ai_automation</field>
+        <field name="model">ir.actions.server</field>
+        <field name="arch" type="xml">
+            <kanban sample="1" quick_create="false">
+                <field name="agent_id"/>
+                <field name="model_id"/>
+                <field name="agent_dispatch_mode"/>
+                <field name="binding_model_id"/>
+                <field name="agent_space_id"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex align-items-center">
+                            <img
+                                t-if="record.agent_id.raw_value"
+                                t-attf-src="/web/image/muk_ai.agent/{{record.agent_id.raw_value}}/image_128"
+                                alt="Agent"
+                                class="rounded flex-shrink-0"
+                                style="width: 44px; height: 44px; object-fit: cover;"
+                            />
+                            <main class="ms-3 flex-grow-1 overflow-hidden">
+                                <div class="fs-5 fw-semibold text-truncate">
+                                    <field name="name"/>
+                                </div>
+                                <div class="small text-muted text-truncate">
+                                    <t t-out="record.agent_id.value"/>
+                                    <span class="mx-1" t-out="'·'"/>
+                                    <t t-out="record.model_id.value"/>
+                                </div>
+                            </main>
+                        </div>
+                        <div class="mt-3 d-flex flex-wrap gap-1">
+                            <span class="badge rounded-pill border text-body fw-normal px-2 py-1" style="font-size: 0.8rem;">
+                                <i class="fa fa-comments-o me-1" title="Dispatch" aria-hidden="true"/>
+                                <t t-out="record.agent_dispatch_mode.value"/>
+                            </span>
+                            <span t-if="record.binding_model_id.raw_value" class="badge rounded-pill border text-body fw-normal px-2 py-1" style="font-size: 0.8rem;">
+                                <i class="fa fa-bars me-1" aria-hidden="true"/>
+                                <span>Actions Menu</span>
+                            </span>
+                            <span t-if="record.agent_space_id.raw_value" class="badge rounded-pill border text-body fw-normal px-2 py-1" style="font-size: 0.8rem;">
+                                <i class="fa fa-folder-o me-1" title="Space" aria-hidden="true"/>
+                                <t t-out="record.agent_space_id.value"/>
+                            </span>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="action_ai_agent_actions" model="ir.actions.act_window">
+        <field name="name">Agent Actions</field>
+        <field name="path">ai-agent-actions</field>
+        <field name="res_model">ir.actions.server</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="domain">[('state', '=', 'ai_agent'), ('usage', '=', 'ir_actions_server')]</field>
+        <field name="context">{'default_state': 'ai_agent', 'default_usage': 'ir_actions_server'}</field>
+        <field
+            name="view_ids"
+            eval="[
+                (5, 0, 0),
+                (0, 0, {'view_mode': 'kanban', 'view_id': ref('view_ai_agent_action_kanban')}),
+                (0, 0, {'view_mode': 'list', 'view_id': ref('view_ai_agent_action_list')}),
+            ]"
+        />
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create an agent action
+            </p>
+            <p>
+                An agent action hands records to an AI agent with a prompt. Run it
+                from the Actions menu of a list, an automation rule or a schedule.
+            </p>
+        </field>
+    </record>
+
+</odoo>

@@ -1,16 +1,16 @@
 {
-    'name': 'MuK Groups', 
+    'name': 'MuK Groups',
     'summary': 'Adds expand/collapse for views',
-    'description': '''
-        Enables you to expand and collapse groups that were created by 
+    'description': """
+        Enables you to expand and collapse groups that were created by
         grouping the data by a certain field for list and kanban views.
-    ''',
-    'version': '19.0.1.0.0',
+    """,
+    'version': '19.0.1.0.8',
     'category': 'Tools/UI',
-    'license': 'LGPL-3', 
+    'license': 'LGPL-3',
     'author': 'MuK IT',
     'website': 'http://www.mukit.at',
-    'live_test_url': 'https://youtu.be/XiMde7ROg-kS',
+    'live_test_url': 'https://youtu.be/XiMde7ROg-k',
     'contributors': [
         'Mathias Markl <mathias.markl@mukit.at>',
     ],
@@ -22,6 +22,8 @@
             '/muk_web_group/static/src/**/*',
         ],
         'web.assets_unit_tests': [
+            'muk_web_group/static/src/**/*.js',
+            'muk_web_group/static/src/**/*.xml',
             'muk_web_group/static/tests/**/*',
         ],
     },
