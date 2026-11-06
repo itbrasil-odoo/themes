@@ -911,7 +911,7 @@ msgstr "Responde na hora, quase não pensa"
 #: model:ir.actions.act_window,name:muk_ai.action_ai_approval
 #: model:ir.ui.menu,name:muk_ai.menu_ai_approval
 msgid "Approval Logs"
-msgstr "Registros de aprovação"
+msgstr "Logs de aprovação"
 
 #. module: muk_ai
 #: model:ir.model.fields,field_description:muk_ai.field_muk_ai_agent__approval_mode
@@ -5636,7 +5636,7 @@ msgstr "Filtro de ferramentas"
 #. module: muk_ai
 #: model:ir.ui.menu,name:muk_ai.menu_ai_log
 msgid "Tool Logs"
-msgstr "Registros de ferramentas"
+msgstr "Logs de ferramentas"
 
 #. module: muk_ai
 #. odoo-javascript
