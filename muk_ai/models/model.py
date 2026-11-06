@@ -143,6 +143,17 @@ class AIModel(models.Model):
         string='Notes',
     )
 
+    api_synced = fields.Boolean(
+        string='Synced from API',
+        help=(
+            'Created by the model sync of its provider. The vendor API does '
+            'not publish prices, so its rates stay editable and it cannot be '
+            'activated until they are filled in.'
+        ),
+        readonly=True,
+        copy=False,
+    )
+
     # ----------------------------------------------------------
     # Helper
     # ----------------------------------------------------------
@@ -205,6 +216,29 @@ class AIModel(models.Model):
         'unique(provider_id, technical_name, modality)',
         'A model with this provider, name and modality already exists.',
     )
+
+    @api.constrains('active', 'api_synced', 'input_rate', 'output_rate')
+    def _check_synced_model_priced(self) -> None:
+        """Keep a synced model inactive until its rates are filled in.
+
+        Usage costs are computed from the rates, so an active model priced at
+        zero would let every spending budget run unchecked.
+
+        :raise ValidationError: when an unpriced synced model is activated
+        """
+        for record in self:
+            if (
+                record.active
+                and record.api_synced
+                and not (record.input_rate and record.output_rate)
+            ):
+                raise ValidationError(
+                    _(
+                        'Fill in the input and output rates of %(model)s before '
+                        'activating it.',
+                        model=record.name,
+                    )
+                )
 
     @api.constrains('context_window', 'modality')
     def _check_context_window(self) -> None:

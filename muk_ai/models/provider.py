@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from odoo import _, api, fields, models
@@ -12,6 +13,8 @@ from odoo.addons.muk_ai.tools import (
     is_unmaterialized_attachment,
     nearest_reasoning_effort,
 )
+
+SNAPSHOT_SUFFIX = re.compile(r'-\d{8}$')
 
 
 class AIProvider(models.Model):
@@ -182,6 +185,11 @@ class AIProvider(models.Model):
     supports_vision = fields.Boolean(
         compute='_compute_capabilities',
         string='Supports Vision',
+    )
+
+    supports_model_listing = fields.Boolean(
+        compute='_compute_capabilities',
+        string='Supports Model Listing',
     )
 
     serves_chat = fields.Boolean(
@@ -386,6 +394,75 @@ class AIProvider(models.Model):
             },
         }
 
+    def action_sync_models(self) -> dict:
+        """Add the chat models the vendor lists that the catalogue lacks.
+
+        New models arrive inactive and unpriced: the listing carries no
+        prices, and usage costs are computed from the rates.
+        """
+        self.ensure_one()
+        created = self._sync_models(self._get_client().list_models())
+        if created:
+            message = _(
+                'New models, inactive until their rates are filled in: %(models)s',
+                models=', '.join(created.mapped('name')),
+            )
+        else:
+            message = _('The model catalogue is already up to date.')
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'type': 'success' if not created else 'warning',
+                'title': _('AI Models'),
+                'message': message,
+                'sticky': bool(created),
+            },
+        }
+
+    def _sync_models(self, entries: list[dict]) -> models.BaseModel:
+        """Create the listed chat models this provider does not catalogue yet.
+
+        A dated snapshot (``name-20251001``) counts as its alias. Catalogued
+        models are left untouched: their data is curated in this module.
+
+        :return: the created ``muk_ai.model`` records
+        """
+        self.ensure_one()
+        Model = self.env['muk_ai.model'].with_context(active_test=False)
+        known = set(
+            Model.search(
+                [('provider_id', '=', self.id), ('modality', '=', 'chat')]
+            ).mapped('technical_name')
+        )
+        values = []
+        for entry in entries:
+            name = entry['technical_name']
+            if name in known or SNAPSHOT_SUFFIX.sub('', name) in known:
+                continue
+            known.add(name)
+            values.append(
+                {
+                    'name': entry['name'],
+                    'provider_id': self.id,
+                    'technical_name': name,
+                    'modality': 'chat',
+                    'context_window': entry['context_window'],
+                    'reasoning_efforts': entry['reasoning_efforts'] or False,
+                    'input_rate': 0.0,
+                    'active': False,
+                    'api_synced': True,
+                    'notes': _(
+                        'Created from the %(provider)s model listing on %(date)s. '
+                        'The listing does not publish prices: fill in the rates '
+                        'before activating it.',
+                        provider=self.display_name,
+                        date=fields.Date.context_today(self),
+                    ),
+                }
+            )
+        return Model.create(values)
+
     # ----------------------------------------------------------
     # Compute
     # ----------------------------------------------------------
@@ -453,6 +530,7 @@ class AIProvider(models.Model):
                 and 'code_interpreter' not in disabled
             )
             record.supports_vision = bool(impl and impl.supports_vision)
+            record.supports_model_listing = bool(impl and impl.supports_model_listing)
 
     @api.depends('name')
     def _compute_serves_chat(self) -> None:
