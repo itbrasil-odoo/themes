@@ -1,0 +1,592 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* muk_ai_automation
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0+e\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-06 23:18+0000\n"
+"PO-Revision-Date: 2026-11-06 23:18+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_res_config_settings_form
+msgid "<i class=\"fa fa-arrow-right me-1\"/>Manage AI Automation Rules"
+msgstr "<i class=\"fa fa-arrow-right me-1\"/>Gerenciar regras de automação com IA"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_action_kanban
+msgid ""
+"<i class=\"fa fa-bars me-1\" aria-hidden=\"true\"/>\n"
+"                                <span>Actions Menu</span>"
+msgstr ""
+"<i class=\"fa fa-bars me-1\" aria-hidden=\"true\"/>\n"
+"                                <span>Menu Ações</span>"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "<i class=\"fa fa-clock-o me-1\" title=\"Interval\"/>"
+msgstr "<i class=\"fa fa-clock-o me-1\" title=\"Intervalo\"/>"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_action_kanban
+msgid "<i class=\"fa fa-comments-o me-1\" title=\"Dispatch\" aria-hidden=\"true\"/>"
+msgstr "<i class=\"fa fa-comments-o me-1\" title=\"Disparo\" aria-hidden=\"true\"/>"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_action_kanban
+msgid "<i class=\"fa fa-folder-o me-1\" title=\"Space\" aria-hidden=\"true\"/>"
+msgstr "<i class=\"fa fa-folder-o me-1\" title=\"Espaço\" aria-hidden=\"true\"/>"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "<span>Every</span>"
+msgstr "<span>A cada</span>"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ir_actions_server_form_agent
+msgid "AI Agent"
+msgstr "Agente de IA"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_base_automation_search_agent
+msgid "AI Agent Rules"
+msgstr "Regras com agente de IA"
+
+#. module: muk_ai_automation
+#: model:ir.model,name:muk_ai_automation.model_muk_ai_session
+msgid "AI Session"
+msgstr "Sessão de IA"
+
+#. module: muk_ai_automation
+#: model:ir.model,name:muk_ai_automation.model_muk_ai_space
+msgid "AI Space"
+msgstr "Espaço de IA"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_action_list
+msgid "Actions Menu"
+msgstr "Menu Ações"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_id
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_id
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_action_kanban
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "Agent"
+msgstr "Agente"
+
+#. module: muk_ai_automation
+#: model:ir.actions.act_window,name:muk_ai_automation.action_ai_agent_actions
+#: model:ir.ui.menu,name:muk_ai_automation.menu_ai_agent_actions
+msgid "Agent Actions"
+msgstr "Ações de agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_chain_strategy
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_chain_strategy
+msgid "Agent Chain Strategy"
+msgstr "Estratégia de encadeamento do agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_dispatch_mode
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_dispatch_mode
+msgid "Agent Dispatch Mode"
+msgstr "Modo de disparo do agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_max_cost_eur
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_max_cost_eur
+msgid "Agent Max Cost (EUR)"
+msgstr "Custo máximo do agente (EUR)"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_max_lifetime_hours
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_max_lifetime_hours
+msgid "Agent Max Lifetime (hours)"
+msgstr "Duração máxima do agente (horas)"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_max_records_per_fire
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_max_records_per_fire
+msgid "Agent Max Records Per Fire"
+msgstr "Máximo de registros por disparo do agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_max_resumes
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_max_resumes
+msgid "Agent Max Resumes"
+msgstr "Máximo de retomadas do agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_max_total_tokens
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_max_total_tokens
+msgid "Agent Max Total Tokens"
+msgstr "Máximo total de tokens do agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_prompt
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_prompt
+msgid "Agent Prompt"
+msgstr "Prompt do agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_record_code
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_record_code
+msgid "Agent Record Code"
+msgstr "Código de registros do agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_record_domain
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_record_domain
+msgid "Agent Record Domain"
+msgstr "Domínio de registros do agente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_record_source
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_record_source
+msgid "Agent Record Source"
+msgstr "Origem dos registros do agente"
+
+#. module: muk_ai_automation
+#: model_terms:ir.actions.act_window,help:muk_ai_automation.action_ai_agent_actions
+msgid ""
+"An agent action hands records to an AI agent with a prompt. Run it\n"
+"                from the Actions menu of a list, an automation rule or a schedule."
+msgstr ""
+"Uma ação de agente entrega registros a um agente de IA com um prompt. Execute-a\n"
+"                pelo menu Ações de uma lista, por uma regra de automação ou por um agendamento."
+
+#. module: muk_ai_automation
+#: model_terms:ir.actions.act_window,help:muk_ai_automation.action_ai_scheduled_actions
+msgid ""
+"Attach a scheduled action to a server action with state\n"
+"                <em>Run AI Agent</em> to fire an AI agent on a cron cadence."
+msgstr ""
+"Vincule uma ação agendada a uma ação de servidor do tipo\n"
+"                <em>Executar agente de IA</em> para disparar um agente de IA na frequência de um cron."
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ir_actions_server_form_agent
+msgid "Automatic"
+msgstr "Automático"
+
+#. module: muk_ai_automation
+#: model:ir.ui.menu,name:muk_ai_automation.menu_ai_automation
+#: model:muk_ai.space,name:muk_ai_automation.space_automation
+msgid "Automation"
+msgstr "Automação"
+
+#. module: muk_ai_automation
+#: model:ir.model,name:muk_ai_automation.model_base_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_session__base_automation_id
+msgid "Automation Rule"
+msgstr "Regra de automação"
+
+#. module: muk_ai_automation
+#: model:ir.actions.act_window,name:muk_ai_automation.action_ai_automation_rules
+#: model:ir.ui.menu,name:muk_ai_automation.menu_ai_automation_rules
+msgid "Automation Rules"
+msgstr "Regras de automação"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ir_actions_server_form_agent
+msgid "Caps"
+msgstr "Limites"
+
+#. module: muk_ai_automation
+#: model:ir.model,name:muk_ai_automation.model_res_config_settings
+msgid "Config Settings"
+msgstr "Configurações"
+
+#. module: muk_ai_automation
+#: model_terms:ir.actions.act_window,help:muk_ai_automation.action_ai_automation_rules
+msgid ""
+"Create a base automation rule whose server action is set to\n"
+"                <em>Run AI Agent</em> to fire an AI agent from any record\n"
+"                event."
+msgstr ""
+"Crie uma regra de automação cuja ação de servidor seja do tipo\n"
+"                <em>Executar agente de IA</em> para disparar um agente de IA a partir de\n"
+"                qualquer evento de registro."
+
+#. module: muk_ai_automation
+#: model_terms:ir.actions.act_window,help:muk_ai_automation.action_ai_agent_actions
+msgid "Create an agent action"
+msgstr "Criar uma ação de agente"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "Daily"
+msgstr "Diariamente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_base_automation__display_name
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__display_name
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_session__display_name
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_space__display_name
+#: model:ir.model.fields,field_description:muk_ai_automation.field_res_config_settings__display_name
+msgid "Display Name"
+msgstr "Nome exibido"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields.selection,name:muk_ai_automation.selection__ir_actions_server__agent_record_source__domain
+msgid "Domain"
+msgstr "Domínio"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "Every minute"
+msgstr "A cada minuto"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "Hourly"
+msgstr "De hora em hora"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_record_source
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_record_source
+msgid ""
+"How target records are resolved when no records come from the trigger "
+"context: from a search domain or from safe-evaluated Python code."
+msgstr ""
+"Como os registros-alvo são obtidos quando nenhum registro vem do contexto do"
+" gatilho: por um domínio de pesquisa ou por código Python avaliado com "
+"segurança."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_base_automation__id
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__id
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_session__id
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_space__id
+#: model:ir.model.fields,field_description:muk_ai_automation.field_res_config_settings__id
+msgid "ID"
+msgstr "ID"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_prompt
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_prompt
+msgid ""
+"Initial prompt sent to the agent on each fire. Rendered as an inline "
+"template with the evaluation context of the action (record, records, env, "
+"user), plus previous_session (previous_session.last_text and "
+"previous_session.tool_log) when the action chains after an earlier agent "
+"run."
+msgstr ""
+"Prompt inicial enviado ao agente a cada disparo. Renderizado como template "
+"inline com o contexto de avaliação da ação (record, records, env, user), "
+"além de previous_session (previous_session.last_text e "
+"previous_session.tool_log) quando a ação se encadeia após uma execução "
+"anterior do agente."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_max_cost_eur
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_max_cost_eur
+msgid ""
+"Maximum cumulative cost in EUR a spawned session may incur. Enforced when "
+"the session resumes through MuK AI Schedule; zero falls back to the module-"
+"wide default."
+msgstr ""
+"Custo acumulado máximo em EUR que uma sessão iniciada pode gerar. Aplicado "
+"quando a sessão é retomada pelo Agendamento ServIAm; zero usa o padrão do "
+"módulo."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_max_resumes
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_max_resumes
+msgid ""
+"Maximum number of times a spawned session may resume. Enforced when the "
+"session resumes through MuK AI Schedule; zero falls back to the module-wide "
+"default."
+msgstr ""
+"Número máximo de vezes que uma sessão iniciada pode ser retomada. Aplicado "
+"quando a sessão é retomada pelo Agendamento ServIAm; zero usa o padrão do "
+"módulo."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_max_total_tokens
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_max_total_tokens
+msgid ""
+"Maximum total tokens a spawned session may consume. Enforced when the "
+"session resumes through MuK AI Schedule; zero falls back to the module-wide "
+"default."
+msgstr ""
+"Total máximo de tokens que uma sessão iniciada pode consumir. Aplicado "
+"quando a sessão é retomada pelo Agendamento ServIAm; zero usa o padrão do "
+"módulo."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_max_lifetime_hours
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_max_lifetime_hours
+msgid ""
+"Maximum wall-clock lifetime of a spawned session in hours. Enforced when the"
+" session resumes through MuK AI Schedule; zero falls back to the module-wide"
+" default."
+msgstr ""
+"Duração máxima real de uma sessão iniciada, em horas. Aplicado quando a "
+"sessão é retomada pelo Agendamento ServIAm; zero usa o padrão do módulo."
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "Monthly"
+msgstr "Mensalmente"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_res_config_settings__module_muk_ai_automation
+msgid "MuK AI Automation"
+msgstr "Automação ServIAm"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "Next run"
+msgstr "Próxima execução"
+
+#. module: muk_ai_automation
+#: model_terms:ir.actions.act_window,help:muk_ai_automation.action_ai_automation_rules
+msgid "No AI automation rules yet."
+msgstr "Ainda não há regras de automação com IA."
+
+#. module: muk_ai_automation
+#: model_terms:ir.actions.act_window,help:muk_ai_automation.action_ai_scheduled_actions
+msgid "No AI scheduled actions yet."
+msgstr "Ainda não há ações agendadas com IA."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields.selection,name:muk_ai_automation.selection__ir_actions_server__agent_chain_strategy__none
+msgid "None"
+msgstr "Nenhuma"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "Paused"
+msgstr "Pausada"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields.selection,name:muk_ai_automation.selection__ir_actions_server__agent_chain_strategy__per_record
+#: model:ir.model.fields.selection,name:muk_ai_automation.selection__ir_actions_server__agent_dispatch_mode__per_record
+msgid "Per Record"
+msgstr "Por registro"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_chain_strategy
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_chain_strategy
+msgid ""
+"Per Record links each new session to the prior session for the same record "
+"so the agent can recall its previous run; None starts every session fresh."
+msgstr ""
+"Por registro vincula cada nova sessão à sessão anterior do mesmo registro, "
+"para que o agente lembre da execução anterior; Nenhuma inicia cada sessão do"
+" zero."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_session__previous_session_id
+msgid "Previous Session"
+msgstr "Sessão anterior"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_muk_ai_session__previous_session_id
+msgid "Prior session in the per-record chain."
+msgstr "Sessão anterior no encadeamento por registro."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields.selection,name:muk_ai_automation.selection__ir_actions_server__agent_record_source__code
+msgid "Python"
+msgstr "Python"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_record_code
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_record_code
+msgid ""
+"Python code (safe-evaluated). Must assign a recordset to the \"records\" "
+"variable. Context: env, now, today."
+msgstr ""
+"Código Python (avaliado com segurança). Deve atribuir um recordset à "
+"variável \"records\". Contexto: env, now, today."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields.selection,name:muk_ai_automation.selection__ir_actions_server__state__ai_agent
+msgid "Run AI Agent"
+msgstr "Executar agente de IA"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_res_config_settings__module_muk_ai_automation
+msgid "Run AI agents as server actions and automation rule steps."
+msgstr ""
+"Execute agentes de IA como ações de servidor e etapas de regras de "
+"automação."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_base_automation__agent_user_id
+msgid "Run Agents As"
+msgstr "Executar agentes como"
+
+#. module: muk_ai_automation
+#: model:muk_ai.space,name:muk_ai_automation.space_scheduled
+msgid "Scheduled"
+msgstr "Agendados"
+
+#. module: muk_ai_automation
+#: model:ir.actions.act_window,name:muk_ai_automation.action_ai_scheduled_actions
+#: model:ir.ui.menu,name:muk_ai_automation.menu_ai_scheduled_actions
+msgid "Scheduled Actions"
+msgstr "Ações agendadas"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_record_domain
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_record_domain
+msgid ""
+"Search domain used to resolve target records when the record source is "
+"Domain. Evaluated against the action model."
+msgstr ""
+"Domínio de pesquisa usado para obter os registros-alvo quando a origem dos "
+"registros é Domínio. Avaliado no modelo da ação."
+
+#. module: muk_ai_automation
+#: model:ir.model,name:muk_ai_automation.model_ir_actions_server
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_session__action_server_id
+msgid "Server Action"
+msgstr "Ação de servidor"
+
+#. module: muk_ai_automation
+#. odoo-python
+#: code:addons/muk_ai_automation/tools/dispatch.py:0
+msgid ""
+"Server action %(name)s cannot run: the user it runs as is archived or not "
+"set."
+msgstr ""
+"A ação de servidor %(name)s não pode ser executada: o usuário com que ela "
+"roda está arquivado ou não foi definido."
+
+#. module: muk_ai_automation
+#. odoo-python
+#: code:addons/muk_ai_automation/tools/dispatch.py:0
+msgid "Server action %(name)s has no active agent."
+msgstr "A ação de servidor %(name)s não tem agente ativo."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_muk_ai_session__action_server_id
+msgid "Server action that spawned this session."
+msgstr "Ação de servidor que iniciou esta sessão."
+
+#. module: muk_ai_automation
+#. odoo-python
+#: code:addons/muk_ai_automation/tools/dispatch.py:0
+msgid "Session start failed."
+msgstr "Falha ao iniciar a sessão."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields.selection,name:muk_ai_automation.selection__ir_actions_server__agent_dispatch_mode__single
+msgid "Single"
+msgstr "Única"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_dispatch_mode
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_dispatch_mode
+msgid ""
+"Single spawns one session for the whole target recordset; Per Record spawns "
+"one session per resolved record so the agent runs independently against "
+"each."
+msgstr ""
+"Única inicia uma sessão para todo o conjunto de registros-alvo; Por registro"
+" inicia uma sessão para cada registro obtido, para que o agente atue em cada"
+" um de forma independente."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__agent_space_id
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__agent_space_id
+msgid "Space"
+msgstr "Espaço"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_session__action_space_id
+msgid "Space of the Action"
+msgstr "Espaço da ação"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_muk_ai_session__action_server_usage
+msgid "Started By Usage"
+msgstr "Uso da ação de origem"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_space_id
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_space_id
+#: model:ir.model.fields,help:muk_ai_automation.field_muk_ai_session__action_space_id
+msgid ""
+"System space that lists the chats of this action. Leave empty to list them "
+"under Automation, or under Scheduled for a scheduled action."
+msgstr ""
+"Espaço de sistema que lista os chats desta ação. Deixe vazio para listá-los "
+"em Automação, ou em Agendados no caso de uma ação agendada."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_actions_server__state
+#: model:ir.model.fields,field_description:muk_ai_automation.field_ir_cron__state
+msgid "Type"
+msgstr "Tipo"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__state
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__state
+msgid ""
+"Type of server action. The following values are available:\n"
+"- 'Update a Record': update the values of a record\n"
+"- 'Create Activity': create an activity (Discuss)\n"
+"- 'Send Email': post a message, a note or send an email (Discuss)\n"
+"- 'Send SMS': send SMS, log them on documents (SMS)- 'Add/Remove Followers': add or remove followers to a record (Discuss)\n"
+"- 'Create Record': create a new record with new values\n"
+"- 'Execute Code': a block of Python code that will be executed\n"
+"- 'Send Webhook Notification': send a POST request to an external system, also known as a Webhook\n"
+"- 'Multi Actions': define an action that triggers several other server actions\n"
+msgstr ""
+"Tipo de ação do servidor. Os seguintes valores estão disponíveis:\n"
+"- 'Atualizar registro': atualizar os valores de um registro\n"
+"- 'Criar atividade': cria uma atividade (Mensagens)\n"
+"- 'Enviar e-mail': publica uma mensagem, uma nota ou envia um e-mail (Mensagens)\n"
+"- 'Enviar SMS': envia SMS, registra-o em documentos (SMS)\n"
+"- 'Adicionar/remover seguidores': adiciona ou remove seguidores de um registro (Mensagens)\n"
+"- 'Criar registro': cria um novo registro com novos valores\n"
+"- 'Executar código': um bloco de código Python que será executado\n"
+"- 'Enviar notificação de webhook': envia uma solicitação POST para um sistema externo, também conhecido como Webhook\n"
+"- 'Multiações': define uma ação que aciona várias outras ações do servidor\n"
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_actions_server__agent_max_records_per_fire
+#: model:ir.model.fields,help:muk_ai_automation.field_ir_cron__agent_max_records_per_fire
+msgid ""
+"Upper bound on the number of records processed in a single per-record fire. "
+"Excess records are skipped. Zero means no limit."
+msgstr ""
+"Limite máximo de registros processados em um único disparo por registro. Os "
+"registros excedentes são ignorados. Zero significa sem limite."
+
+#. module: muk_ai_automation
+#: model:ir.model.fields,help:muk_ai_automation.field_base_automation__agent_user_id
+msgid ""
+"User whose access rights the chats of the AI agent steps run with, whoever "
+"triggers the rule."
+msgstr ""
+"Usuário cujas permissões de acesso os chats das etapas de agente de IA usam,"
+" seja quem for que acione a regra."
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ai_agent_cron_kanban
+msgid "Weekly"
+msgstr "Semanalmente"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ir_actions_server_form_agent
+msgid "e.g. Summarize this record: {{ record.display_name }}"
+msgstr "ex.: Resuma este registro: {{ record.display_name }}"
+
+#. module: muk_ai_automation
+#: model_terms:ir.ui.view,arch_db:muk_ai_automation.view_ir_actions_server_form_agent
+msgid "records = env['res.partner'].search([], limit=10)"
+msgstr "records = env['res.partner'].search([], limit=10)"
