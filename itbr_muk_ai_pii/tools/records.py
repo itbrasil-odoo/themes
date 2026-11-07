@@ -85,6 +85,7 @@ class Masker:
         self.blocked = env['muk_mcp.mixin']._itbr_pii_blocked_models()
         self._exposure = {}
         self._persons = {}
+        self._shared_users = {}
         self._emitted = {}
 
     # -- classification -------------------------------------------------
@@ -171,11 +172,34 @@ class Masker:
         self.load_persons([pid])
         return self._persons.get(pid, False)
 
-    def mask_label(self, value):
-        """``(id, label)`` of a partner: the label becomes ``NAME#`` for a person."""
-        if isinstance(value, (list, tuple)) and len(value) == 2 and self.is_person(value[0]):
-            return [value[0], self.emit('NAME', value[1])]
-        return value
+    def load_users(self, ids):
+        """Classify user ids at once: portal/public users (``share``) are clients."""
+        missing = {i for i in ids if isinstance(i, int) and i not in self._shared_users}
+        if not missing or not self.tokens:
+            return
+        users = self._sudo()[USERS].browse(sorted(missing)).exists()
+        shared = set(users.filtered('share').ids)
+        for uid in missing:
+            self._shared_users[uid] = uid in shared
+
+    def is_client_user(self, uid):
+        if not self.tokens or not isinstance(uid, int):
+            return False
+        self.load_users([uid])
+        return self._shared_users.get(uid, False)
+
+    def load_labels(self, comodel, ids):
+        if comodel == PARTNER:
+            self.load_persons(ids)
+        elif comodel == USERS:
+            self.load_users(ids)
+
+    def mask_label(self, value, comodel=PARTNER):
+        """``(id, label)`` of a partner or user: ``NAME#`` label for a person or portal user."""
+        if not (isinstance(value, (list, tuple)) and len(value) == 2):
+            return value
+        masked = self.is_client_user(value[0]) if comodel == USERS else self.is_person(value[0])
+        return [value[0], self.emit('NAME', value[1])] if masked else value
 
     def _sudo(self):
         return self.env(su=True, context={**self.env.context, 'active_test': False})
@@ -283,19 +307,20 @@ class Masker:
     def rows(self, model_name, rows):
         model_fields = self.env[model_name]._fields
         is_partner = model_name == PARTNER
-        partner_m2o = {
-            name for name, field in model_fields.items()
-            if field.type == 'many2one' and field.comodel_name == PARTNER
+        people_m2o = {
+            name: field.comodel_name for name, field in model_fields.items()
+            if field.type == 'many2one' and field.comodel_name in PEOPLE_MODELS
         }
         if self.tokens:
-            ids = set()
+            ids = {PARTNER: set(), USERS: set()}
             for row in rows:
                 if is_partner:
-                    ids.add(row.get('id'))
-                for name in partner_m2o.intersection(row):
+                    ids[PARTNER].add(row.get('id'))
+                for name in people_m2o.keys() & row.keys():
                     if isinstance(row[name], (list, tuple)) and row[name]:
-                        ids.add(row[name][0])
-            self.load_persons(ids)
+                        ids[people_m2o[name]].add(row[name][0])
+            for comodel, comodel_ids in ids.items():
+                self.load_labels(comodel, comodel_ids)
         actions = self._row_actions(model_name, rows)
         result = []
         for row in rows:
@@ -324,8 +349,8 @@ class Masker:
                 elif field is not None and field.relational and isinstance(value, (dict, list)) \
                         and (isinstance(value, dict) or any(isinstance(v, dict) for v in value)):
                     value = self._nested(field, value)
-                elif name in partner_m2o and value:
-                    value = self.mask_label(value)
+                elif name in people_m2o and value:
+                    value = self.mask_label(value, people_m2o[name])
                 elif is_partner and name in PARTNER_NAME_FIELDS and self.is_person(row.get('id')):
                     value = self.emit('NAME', value)
                 masked[name] = value
@@ -369,11 +394,11 @@ class Masker:
             for spec in aggregates if spec != '__count'
         }
         if self.tokens:
-            ids = set()
             for spec, (_level, _model, field) in specs.items():
-                if field is not None and field.relational and field.comodel_name == PARTNER:
-                    ids.update(g[spec][0] for g in groups if isinstance(g.get(spec), (list, tuple)))
-            self.load_persons(ids)
+                if field is not None and field.relational and field.comodel_name in PEOPLE_MODELS:
+                    self.load_labels(field.comodel_name, [
+                        g[spec][0] for g in groups if isinstance(g.get(spec), (list, tuple))
+                    ])
         for group in groups:
             for spec, (level, _model, field) in specs.items():
                 if spec not in group:
@@ -397,8 +422,8 @@ class Masker:
                         group[spec] = self.emit('NAME', value)
                         group.pop('__extra_domain', None)
                         group.pop('__domain', None)
-                elif field is not None and field.relational and field.comodel_name == PARTNER:
-                    group[spec] = self.mask_label(value)
+                elif field is not None and field.relational and field.comodel_name in PEOPLE_MODELS:
+                    group[spec] = self.mask_label(value, field.comodel_name)
             for spec, (level, _model, field) in aggs.items():
                 if spec not in group:
                     continue

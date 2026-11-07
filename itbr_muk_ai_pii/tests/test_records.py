@@ -354,3 +354,18 @@ class TestRecords(AITestCommon):
         )
         self.assertEqual(groups[0]['parent_id'][1], tok('NAME', 'Maria Pessoa'))
         self.assertNotIn('Maria Pessoa', json.dumps(groups))
+
+    def test_many2one_portal_user_tokenized(self):
+        portal = new_test_user(
+            self.env, login='portal2@cliente.com.br', name='Paulo Portal', groups='base.group_portal'
+        )
+        self.person.user_id = portal
+        self.company.user_id = self.user
+        rows = sorted(self._read(self.person | self.company, ['user_id']), key=lambda r: r['id'])
+        self.assertEqual(rows[0]['user_id'], [portal.id, tok('NAME', 'Paulo Portal')])
+        self.assertEqual(rows[1]['user_id'], [self.user.id, 'Vera Vendedora'])
+        groups = self._call(
+            'read_group',
+            {'model': 'res.partner', 'domain': [['id', '=', self.person.id]], 'groupby': ['user_id']},
+        )
+        self.assertEqual(groups[0]['user_id'], [portal.id, tok('NAME', 'Paulo Portal')])
