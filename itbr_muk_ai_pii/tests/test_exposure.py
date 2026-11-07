@@ -116,3 +116,24 @@ class TestExposure(TransactionCase):
     def test_block_ignores_type(self):
         self.assertEqual(classify_field('res.partner', 'bank_count', 'integer'), 'block')
         self.assertEqual(classify_field('res.partner', 'private_flag', 'boolean'), 'block')
+
+    def test_create_override_requires_system(self):
+        manager = new_test_user(self.env, login='pii_erp_manager2', groups='base.group_erp_manager')
+        admin = new_test_user(self.env, login='pii_system2', groups='base.group_system')
+        vals = {
+            'model_id': self.env.ref('base.model_res_partner').id,
+            'ttype': 'char',
+            'state': 'manual',
+        }
+        with self.assertRaises(AccessError):
+            self.env['ir.model.fields'].with_user(manager).create(
+                dict(vals, name='x_cpf_a', field_description='A', ai_exposure_override='allow'),
+            )
+        plain = self.env['ir.model.fields'].with_user(manager).create(
+            dict(vals, name='x_cpf_b', field_description='B'),
+        )
+        self.assertEqual(plain.ai_exposure, 'tokenize')
+        forced = self.env['ir.model.fields'].with_user(admin).create(
+            dict(vals, name='x_cpf_c', field_description='C', ai_exposure_override='allow'),
+        )
+        self.assertEqual(forced.ai_exposure, 'allow')

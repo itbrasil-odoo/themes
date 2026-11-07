@@ -1,7 +1,7 @@
 {
     'name': 'ServIAm Personal Data',
     'summary': 'Keeps personal data out of the AI provider in ServIAm chats',
-    'version': '19.0.1.1.2',
+    'version': '19.0.1.1.3',
     'category': 'Productivity',
     'license': 'LGPL-3',
     'author': 'IT Brasil',

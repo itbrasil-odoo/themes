@@ -103,6 +103,10 @@ class IrModelFields(models.Model):
             for name, exposure, ttype in self.env.cr.fetchall()
         }
 
+    def _check_ai_exposure_admin(self):
+        if not (self.env.su or self.env.user._is_system()):
+            raise AccessError(self.env._('Only administrators can change the AI exposure of a field.'))
+
     def write(self, vals):
         # ir.model.fields.write refuses to touch base fields; the exposure
         # override is metadata of ours and must stay editable on any field.
@@ -112,14 +116,15 @@ class IrModelFields(models.Model):
         if rest:
             result = super().write(rest)
         if own:
-            if not (self.env.su or self.env.user._is_system()):
-                raise AccessError(self.env._('Only administrators can change the AI exposure of a field.'))
+            self._check_ai_exposure_admin()
             result = models.BaseModel.write(self, own)
             self.env.registry.clear_cache()
         return result
 
     @api.model_create_multi
     def create(self, vals_list):
+        if any(vals.get('ai_exposure_override') for vals in vals_list):
+            self._check_ai_exposure_admin()
         records = super().create(vals_list)
         self.env.registry.clear_cache()
         return records
