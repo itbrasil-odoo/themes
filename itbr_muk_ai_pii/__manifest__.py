@@ -10,6 +10,7 @@
     'data': [
         'security/ir.model.access.csv',
         'data/ir_config_parameter.xml',
+        'data/ir_model_fields.xml',
         'views/res_config_settings.xml',
         'views/ir_model_fields.xml',
     ],

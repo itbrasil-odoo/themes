@@ -209,16 +209,148 @@ class TestRecords(AITestCommon):
         self.assertNotIn('Cliente', json.dumps(group))
         self.assertNotIn('123.456', json.dumps(group))
 
-    def test_export_drops_tokenized(self):
+    def _export(self, fields, env=None):
         result = self._call(
-            'export_records',
-            {
-                'model': 'res.partner',
-                'ids': self.child.ids,
-                'fields': ['city', 'vat', 'parent_id/email', 'parent_id/city'],
-            },
+            'export_records', {'model': 'res.partner', 'ids': self.child.ids, 'fields': fields}, env
         )
-        content = base64.b64decode(result['content_base64']).decode('utf-8-sig')
+        return base64.b64decode(result['content_base64']).decode('utf-8-sig')
+
+    def test_export_session_drops_blocked_only(self):
+        self._set_blocked('res.partner.bank')
+        content = self._export(['city', 'vat', 'parent_id/email', 'parent_id/city', 'user_ids/password'])
+        self.assertIn('parent_id/email', content)
+        self.assertIn('maria@cliente.com.br', content.lower())
+        self.assertNotIn('password', content)
+
+    def test_export_external_drops_tokenized(self):
+        content = self._export(['city', 'vat', 'parent_id/email', 'parent_id/city'], env=self.env)
         self.assertNotIn('vat', content)
         self.assertNotIn('email', content)
         self.assertIn('parent_id/city', content)
+
+    # -- fix round 1 -----------------------------------------------------
+    def test_related_parent_name_tokenized(self):
+        [row] = self._read(self.child, ['parent_name'])
+        self.assertEqual(row['parent_name'], tok('NAME', 'Maria Pessoa'))
+        contact = self.env['res.partner'].create({'name': 'Joana', 'parent_id': self.company.id})
+        [row] = self._read(contact, ['parent_name'])
+        self.assertEqual(row['parent_name'], 'ACME Ltda')
+
+    def test_follower_name_tokenized(self):
+        self.person.message_subscribe(partner_ids=self.person.ids)
+        followers = self.env['mail.followers'].search(
+            [('res_model', '=', 'res.partner'), ('res_id', '=', self.person.id),
+             ('partner_id', '=', self.person.id)]
+        )
+        [row] = self._read(followers, ['name', 'partner_id'])
+        self.assertEqual(row['name'], tok('NAME', 'Maria Pessoa'))
+
+    def test_message_record_name_and_activity_res_name(self):
+        message = self.person.message_post(body='hello', message_type='comment')
+        [row] = self._read(message, ['record_name'])
+        self.assertEqual(row['record_name'], tok('NAME', 'Maria Pessoa'))
+        activity = self.env['mail.activity'].create({
+            'res_model_id': self.env.ref('base.model_res_partner').id,
+            'res_id': self.person.id,
+            'activity_type_id': self.env.ref('mail.mail_activity_data_todo').id,
+            'user_id': self.user.id,
+        })
+        [row] = self._read(activity.sudo(), ['res_name'], env=self.tool_env(su=True))
+        self.assertEqual(row['res_name'], tok('NAME', 'Maria Pessoa'))
+        company_message = self.company.message_post(body='hi', message_type='comment')
+        [row] = self._read(company_message, ['record_name'])
+        self.assertEqual(row['record_name'], 'ACME Ltda')
+
+    def test_portal_user_name_tokenized(self):
+        portal = new_test_user(
+            self.env, login='Portal@Cliente.com.br', name='Paula Portal', groups='base.group_portal'
+        )
+        [row] = self._read(portal, ['name', 'display_name', 'login'], env=self.tool_env(su=True))
+        self.assertEqual(row['name'], tok('NAME', 'Paula Portal'))
+        self.assertEqual(row['display_name'], tok('NAME', 'Paula Portal'))
+        self.assertEqual(row['login'], tok('EMAIL', 'portal@cliente.com.br'))
+        [row] = self._read(self.user, ['name'])
+        self.assertEqual(row['name'], 'Vera Vendedora')
+
+    def test_contact_address_tokenized(self):
+        self.person.write({'street': 'Rua das Flores 10', 'zip': '13000-000'})
+        [row] = self._read(self.person, ['contact_address'])
+        self.assertTrue(row['contact_address'].startswith('ADDR#'))
+        [row] = self._read(self.person, ['contact_address', 'name'], env=self.env)
+        self.assertNotIn('contact_address', row)
+
+    def test_kinds_login_place_of_birth(self):
+        from ..tools.records import field_kind
+        self.assertEqual(field_kind('login', 'a@b.com'), 'EMAIL')
+        self.assertEqual(field_kind('place_of_birth', 'Campinas'), 'ADDR')
+        self.assertEqual(field_kind('email_address', 'a@b.com'), 'EMAIL')
+        self.assertEqual(field_kind('contact_address', 'Rua X'), 'ADDR')
+        self.assertEqual(field_kind('birthday', '2000-01-01'), 'DATE')
+
+    def test_get_messages_author_tokenized(self):
+        self.person.with_context(mail_create_nolog=True).message_post(
+            body='hello', message_type='comment', author_id=self.person.id
+        )
+        messages = self._call('get_messages', {'model': 'res.partner', 'id': self.person.id})
+        authors = [m['author_id'] for m in messages if m['author_id']]
+        self.assertIn([self.person.id, tok('NAME', 'Maria Pessoa')], authors)
+        self.assertNotIn('Maria Pessoa', json.dumps(messages))
+
+    def test_tracking_value_partner_name_tokenized(self):
+        message = self.child.message_post(body='', message_type='notification')
+        Tracking = self.env['mail.tracking.value'].sudo()
+        parent_field = self.env['ir.model.fields']._get('res.partner', 'parent_id')
+        email_field = self.env['ir.model.fields']._get('res.partner', 'email')
+        values = Tracking.create([
+            {'mail_message_id': message.id, 'field_id': parent_field.id,
+             'old_value_integer': self.company.id, 'old_value_char': 'ACME Ltda',
+             'new_value_integer': self.person.id, 'new_value_char': 'Maria Pessoa'},
+            {'mail_message_id': message.id, 'field_id': email_field.id,
+             'old_value_char': 'old@cliente.com.br', 'new_value_char': 'Maria@Cliente.com.br'},
+        ])
+        fields = ['old_value_char', 'new_value_char']
+        rows = sorted(self._read(values, fields, env=self.tool_env(su=True)), key=lambda r: r['id'])
+        self.assertEqual(rows[0]['old_value_char'], 'ACME Ltda')
+        self.assertEqual(rows[0]['new_value_char'], tok('NAME', 'Maria Pessoa'))
+        self.assertEqual(rows[1]['new_value_char'], tok('EMAIL', 'maria@cliente.com.br'))
+        external = self._read(values, fields, env=self.env)
+        self.assertNotIn('cliente.com.br', json.dumps(external))
+
+    def test_call_method_read_tokenized(self):
+        rows = self._call(
+            'call_method',
+            {'model': 'res.partner', 'method': 'read', 'ids': self.person.ids,
+             'kwargs': {'fields': ['name', 'vat', 'email']}},
+        )
+        self.assertEqual(rows[0]['name'], tok('NAME', 'Maria Pessoa'))
+        self.assertEqual(rows[0]['vat'], tok('CPF', CPF))
+
+    def test_call_method_search_read_and_name_search(self):
+        rows = self._call(
+            'call_method',
+            {'model': 'res.partner', 'method': 'search_read',
+             'kwargs': {'domain': [['id', '=', self.child.id]], 'fields': ['parent_id', 'email']}},
+        )
+        self.assertEqual(rows[0]['parent_id'], [self.person.id, tok('NAME', 'Maria Pessoa')])
+        pairs = self._call(
+            'call_method',
+            {'model': 'res.partner', 'method': 'name_search', 'kwargs': {'name': 'Maria Pessoa'}},
+        )
+        self.assertIn([self.person.id, tok('NAME', 'Maria Pessoa')], pairs)
+        self.assertNotIn('Maria Pessoa', json.dumps(pairs))
+
+    def test_call_method_web_read_and_read_group(self):
+        rows = self._call(
+            'call_method',
+            {'model': 'res.partner', 'method': 'web_read', 'ids': self.child.ids,
+             'kwargs': {'specification': {'name': {}, 'parent_id': {'fields': {'display_name': {}}}}}},
+        )
+        self.assertEqual(rows[0]['parent_id'], {'id': self.person.id, 'display_name': tok('NAME', 'Maria Pessoa')})
+        groups = self._call(
+            'call_method',
+            {'model': 'res.partner', 'method': 'read_group',
+             'kwargs': {'domain': [['id', '=', self.child.id]], 'fields': ['parent_id'],
+                        'groupby': ['parent_id']}},
+        )
+        self.assertEqual(groups[0]['parent_id'][1], tok('NAME', 'Maria Pessoa'))
+        self.assertNotIn('Maria Pessoa', json.dumps(groups))

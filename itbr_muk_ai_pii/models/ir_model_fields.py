@@ -17,11 +17,15 @@ BLOCK_FIRST_PARTS = frozenset({'bank', 'private'})
 TOKENIZE_TYPES = frozenset({'char', 'text', 'html', 'date', 'datetime'})
 TOKENIZE_NAMES = frozenset({
     'vat', 'cnpj_cpf', 'birthday', 'contact_name', 'partner_name',
-    'invoice_partner_display_name',
+    'invoice_partner_display_name', 'contact_address',
 })
 TOKENIZE_SUFFIXES = ('_partner_name',)
 # any name part starting with one of these (cpf -> cpf, cpf_cnpj, ...)
-TOKENIZE_PART_PREFIXES = ('cpf', 'cnpj', 'email', 'phone', 'mobile', 'street', 'zip', 'birth')
+TOKENIZE_PART_PREFIXES = (
+    'cpf', 'cnpj', 'email', 'phone', 'mobile', 'street', 'zip', 'birth', 'address',
+)
+# 'address' in the name but no address of anyone (a format template, a label)
+NOT_PERSONAL_NAMES = frozenset({'address_format', 'type_address_label'})
 # any name part equal to one of these (pt-BR synonyms)
 TOKENIZE_PARTS = frozenset({'telefone', 'celular', 'cep', 'nascimento', 'endereco', 'rua'})
 
@@ -46,7 +50,7 @@ def classify_field(model, name, ttype):
         or (model == 'hr.employee' and ttype == 'binary')
     ):
         return 'block'
-    if ttype in TOKENIZE_TYPES and (
+    if ttype in TOKENIZE_TYPES and name not in NOT_PERSONAL_NAMES and (
         name in TOKENIZE_NAMES
         or name.endswith(TOKENIZE_SUFFIXES)
         or any(part.startswith(TOKENIZE_PART_PREFIXES) or part in TOKENIZE_PARTS for part in parts)
@@ -102,6 +106,31 @@ class IrModelFields(models.Model):
             name: exposure or classify_field(model_name, name, ttype)
             for name, exposure, ttype in self.env.cr.fetchall()
         }
+
+    @api.model
+    def _itbr_reclassify_ai_exposure(self):
+        """Recompute the automatic exposure where the rules now say otherwise.
+
+        Called on every module update, so a change of the rules reaches fields
+        that were classified before it.
+        """
+        self.env.cr.execute(
+            'SELECT id, model, name, ttype, ai_exposure_auto, ai_exposure_override, ai_exposure'
+            ' FROM ir_model_fields'
+        )
+        stale = []
+        for id_, model, name, ttype, auto, override, effective in self.env.cr.fetchall():
+            new_auto = classify_field(model, name, ttype)
+            if new_auto != auto or (override or new_auto) != effective:
+                stale.append(id_)
+        if stale:
+            records = self.browse(stale)
+            # a recompute does not cascade to stored dependents: queue both
+            self.env.add_to_compute(self._fields['ai_exposure_auto'], records)
+            self.env.add_to_compute(self._fields['ai_exposure'], records)
+            records.flush_recordset(['ai_exposure_auto', 'ai_exposure'])
+            self.env.registry.clear_cache()
+        return True
 
     def _check_ai_exposure_admin(self):
         if not (self.env.su or self.env.user._is_system()):

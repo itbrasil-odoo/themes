@@ -16,6 +16,18 @@ from .detector import document_kind, normalize
 NAME_COPY_FIELDS = frozenset({'contact_name', 'partner_name', 'invoice_partner_display_name'})
 PARTNER_NAME_FIELDS = frozenset({'name', 'display_name', 'complete_name'})
 PARTNER = 'res.partner'
+USERS = 'res.users'
+PEOPLE_MODELS = (PARTNER, USERS)
+# char field naming the record of a (model, res_id) pair -> the fields of that pair
+RECORD_NAME_FIELDS = {'record_name': ('model', 'res_id'), 'res_name': ('res_model', 'res_id')}
+TRACKING = 'mail.tracking.value'
+TRACKING_VALUES = {
+    'old_value_char': 'old_value_integer', 'new_value_char': 'new_value_integer',
+}
+TRACKING_ALL = (
+    'old_value_integer', 'old_value_float', 'old_value_char', 'old_value_text', 'old_value_datetime',
+    'new_value_integer', 'new_value_float', 'new_value_char', 'new_value_text', 'new_value_datetime',
+)
 
 
 def _name_parts(name):
@@ -36,14 +48,15 @@ def field_kind(name, value):
 
     if has(('cnpj', 'cpf'), {'vat'}):
         return document_kind(value)
-    if has(('email',)):
+    if has(('email',)) or name == 'login':
         return 'EMAIL'
     if has(('phone', 'mobile'), {'telefone', 'celular'}):
         return 'PHONE'
-    if has(('street', 'zip'), {'cep', 'endereco', 'rua'}):
+    if has(('street', 'zip', 'address'), {'cep', 'endereco', 'rua'}):
         return 'ADDR'
     if has(('birth',), {'nascimento'}):
-        return 'DATE'
+        # place of birth is a place, not a date
+        return 'ADDR' if has((), {'place', 'local'}) else 'DATE'
     if name in NAME_COPY_FIELDS or name.endswith('_partner_name'):
         return 'NAME'
     return 'DOC'
@@ -164,6 +177,108 @@ class Masker:
             return [value[0], self.emit('NAME', value[1])]
         return value
 
+    def _sudo(self):
+        return self.env(su=True, context={**self.env.context, 'active_test': False})
+
+    @staticmethod
+    def _partner_of(record):
+        """The partner behind a res.partner or res.users record (empty otherwise)."""
+        if record._name == USERS:
+            return record.partner_id
+        return record if record._name == PARTNER else record.browse()
+
+    def _row_actions(self, model_name, rows):
+        """Per row id, the fields whose value names a person or carries a tracked value.
+
+        Actions: ``('person', partner_id)``, ``('tokenize', field_name)``, ``('block',)``.
+        Everything is read in one sudo pass over the rows.
+        """
+        if not self.tokens and model_name != TRACKING:
+            return {}
+        model = self.env[model_name]
+        keys = set().union(*rows) if rows else set()
+        related = {}
+        for name in keys:
+            field = model._fields.get(name)
+            if field is None or field.type not in ('char', 'text') or not field.related:
+                continue
+            path = field.related.split('.') if isinstance(field.related, str) else list(field.related)
+            target = model
+            for step in path[:-1]:
+                sub = target._fields.get(step)
+                if sub is None or not sub.relational:
+                    target = None
+                    break
+                target = self.env[sub.comodel_name]
+            if target is not None and target._name in PEOPLE_MODELS and path[-1] in PARTNER_NAME_FIELDS:
+                related[name] = path[:-1]
+        records_named = {
+            name: pair for name, pair in RECORD_NAME_FIELDS.items()
+            if name in keys and all(f in model._fields for f in pair)
+        }
+        self_named = model_name == USERS and keys & PARTNER_NAME_FIELDS
+        tracking = model_name == TRACKING and keys & set(TRACKING_ALL)
+        if not (related or records_named or self_named or tracking):
+            return {}
+        env = self._sudo()
+        records = env[model_name].browse([r['id'] for r in rows if isinstance(r.get('id'), int)])
+        actions = {}
+        for record in records.exists():
+            row_actions = actions.setdefault(record.id, {})
+            for name, path in related.items():
+                target = record
+                for step in path:
+                    target = target[step][:1]
+                if partner := self._partner_of(target):
+                    row_actions[name] = ('person', partner.id)
+            for name, (model_field, id_field) in records_named.items():
+                if record[model_field] in PEOPLE_MODELS and record[id_field]:
+                    partner = self._partner_of(env[record[model_field]].browse(record[id_field]).exists())
+                    if partner:
+                        row_actions[name] = ('person', partner.id)
+            if self_named and (partner := record.partner_id):
+                for name in PARTNER_NAME_FIELDS:
+                    row_actions[name] = ('person', partner.id)
+            if tracking:
+                self._tracking_actions(record, row_actions)
+        self.load_persons(
+            pid for acts in actions.values() for act in acts.values() if act[0] == 'person'
+            for pid in [act[1]]
+        )
+        return actions
+
+    def _tracking_actions(self, record, row_actions):
+        """Tracked values follow the exposure of the field they track."""
+        field = record.field_id
+        if not field:
+            return
+        level = self.level(field.model, field.name) if field.model in self.env else 'allow'
+        if field.relation in self.blocked:
+            level = 'block'
+        if level == 'block' or (level == 'tokenize' and not self.session):
+            for name in TRACKING_ALL:
+                row_actions[name] = ('block',)
+        elif level == 'tokenize':
+            for name in TRACKING_ALL:
+                if 'integer' not in name and 'float' not in name:
+                    row_actions[name] = ('tokenize', field.name)
+        elif field.ttype == 'many2one' and field.relation in PEOPLE_MODELS:
+            for char, integer in TRACKING_VALUES.items():
+                if pid := record[integer]:
+                    partner = self._partner_of(self._sudo()[field.relation].browse(pid).exists())
+                    if partner:
+                        row_actions[char] = ('person', partner.id)
+
+    def _nested(self, field, value):
+        """Mask a relational value read as a dict or list of dicts (web_read)."""
+        if field.comodel_name in self.blocked:
+            return False if field.type == 'many2one' else []
+        if isinstance(value, dict):
+            return self.rows(field.comodel_name, [value])[0]
+        if isinstance(value, list) and value and all(isinstance(v, dict) for v in value):
+            return self.rows(field.comodel_name, value)
+        return value
+
     # -- rows -----------------------------------------------------------
     def rows(self, model_name, rows):
         model_fields = self.env[model_name]._fields
@@ -178,23 +293,37 @@ class Masker:
                 if is_partner:
                     ids.add(row.get('id'))
                 for name in partner_m2o.intersection(row):
-                    if row[name]:
+                    if isinstance(row[name], (list, tuple)) and row[name]:
                         ids.add(row[name][0])
             self.load_persons(ids)
+        actions = self._row_actions(model_name, rows)
         result = []
         for row in rows:
+            row_actions = actions.get(row.get('id'), {})
             masked = {}
             for name, value in row.items():
                 if name == 'id':
                     masked[name] = value
                     continue
                 level = self.level(model_name, name)
+                field = model_fields.get(name)
+                action = row_actions.get(name)
                 if level == 'block' or (level == 'tokenize' and not self.session):
                     if self.blocked_link(model_name, name):
                         masked[name] = False  # R15: the field exists, the link is hidden
                     continue
+                if action and action[0] == 'block':
+                    continue
                 if level == 'tokenize':
                     value = self.emit_field(name, value)
+                elif action and action[0] == 'tokenize':
+                    value = self.emit_field(action[1], value)
+                elif action and action[0] == 'person':
+                    if self.is_person(action[1]):
+                        value = self.emit('NAME', value)
+                elif field is not None and field.relational and isinstance(value, (dict, list)) \
+                        and (isinstance(value, dict) or any(isinstance(v, dict) for v in value)):
+                    value = self._nested(field, value)
                 elif name in partner_m2o and value:
                     value = self.mask_label(value)
                 elif is_partner and name in PARTNER_NAME_FIELDS and self.is_person(row.get('id')):
@@ -202,6 +331,11 @@ class Masker:
                 masked[name] = value
             result.append(masked)
         return result
+
+    def pairs(self, model_name, pairs):
+        """Mask ``(id, display_name)`` pairs of ``name_search``."""
+        rows = self.rows(model_name, [{'id': i, 'display_name': n} for i, n in pairs])
+        return [[row['id'], row['display_name']] for row in rows]
 
     # -- read_group -----------------------------------------------------
     def spec(self, model_name, spec):
@@ -248,19 +382,21 @@ class Masker:
                 if level == 'block' or (level == 'tokenize' and not self.session):
                     group[spec] = False
                     group.pop('__extra_domain', None)
+                    group.pop('__domain', None)
                 elif level == 'tokenize':
                     group[spec] = self.emit_field(field.name, value)
-                    if self.tokens and '__extra_domain' in group:
+                    for key in ('__extra_domain', '__domain'):
+                        if not self.tokens or key not in group:
+                            continue
                         if '.' in spec.split(':')[0]:
-                            group.pop('__extra_domain')
+                            group.pop(key)
                         else:
-                            group['__extra_domain'] = self._mask_domain(
-                                group['__extra_domain'], field.name
-                            )
+                            group[key] = self._mask_domain(group[key], field.name)
                 elif level == 'name':
                     if self.tokens:
                         group[spec] = self.emit('NAME', value)
                         group.pop('__extra_domain', None)
+                        group.pop('__domain', None)
                 elif field is not None and field.relational and field.comodel_name == PARTNER:
                     group[spec] = self.mask_label(value)
             for spec, (level, _model, field) in aggs.items():

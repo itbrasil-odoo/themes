@@ -20,6 +20,13 @@ class TestExposure(TransactionCase):
     def test_city_allowed(self):
         self.assertEqual(self._exposure('res.partner', 'city'), 'allow')
 
+    def test_contact_address_tokenized(self):
+        self.assertEqual(self._exposure('res.partner', 'contact_address'), 'tokenize')
+        self.assertEqual(classify_field('x.model', 'x_endereco_address', 'char'), 'tokenize')
+        self.assertEqual(classify_field('x.model', 'address_home_id', 'many2one'), 'allow')
+        self.assertEqual(self._exposure('res.country', 'address_format'), 'allow')
+        self.assertEqual(self._exposure('res.partner', 'type_address_label'), 'allow')
+
     def test_password_blocked(self):
         self.assertEqual(self._exposure('res.users', 'password'), 'block')
 
