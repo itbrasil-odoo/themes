@@ -1,0 +1,38 @@
+<section class="oe_container">
+	<div class="oe_row oe_spaced">
+		<h2 class="oe_slogan">ServIAm Personal Data</h2>
+		<h3 class="oe_slogan">Keeps clients' personal data out of the AI provider</h3>
+	</div>
+</section>
+
+<section class="oe_container">
+	<div class="oe_row oe_spaced">
+		<div class="text-justify" style="max-width: 84%; margin: 16px 8%;">
+			<p>
+				What the MuK AI assistant (shown as <strong>ServIAm</strong> in Portuguese) reads from Odoo is masked before it
+				reaches the AI provider, as LGPD asks. The people chatting keep seeing the real values.
+			</p>
+			<ul>
+				<li><strong>Blocked models</strong>: HR/payroll and bank data cannot be read at all.</li>
+				<li><strong>Field exposure</strong>: each field is allowed, tokenized (CPF, CNPJ, e-mail, phone, address, birth date, names of person contacts) or blocked, with admin exceptions.</li>
+				<li><strong>Detector on the value</strong>: CPF, CNPJ, e-mail and phone numbers in any text sent to the provider become tokens.</li>
+				<li><strong>Return path</strong>: tokens in the answer, in tool arguments and in approval previews are turned back into the real values.</li>
+			</ul>
+			<p>
+				Tokens are an HMAC of the value, with a key kept only on the server: the <code>ODOO_AI_PII_KEY</code> environment
+				variable or the <code>ai_pii_key</code> option of the Odoo configuration file. Without a key, tokens are off.
+			</p>
+			<h4>Known limits</h4>
+			<ul>
+				<li>Names in free text are not detected: only CPF, CNPJ, e-mail and phone, by value.</li>
+				<li>Grouping by a name field tokenizes company and team names too.</li>
+				<li>Images, PDFs and attachments the user adds go unmasked (a notice is shown); documents the AI fetches ask for confirmation.</li>
+				<li>External MCP clients get blocks only: tokenized fields are dropped, no tokens.</li>
+				<li>In-chat exports keep tokenized fields (the file goes to the user); external exports drop them.</li>
+				<li>With this module installed, 5 upstream <code>muk_mcp</code> tests fail by design (external callers no longer receive <code>email</code>).</li>
+				<li>Not covered yet: <code>muk_ai_subagents</code>, <code>muk_ai_chatter</code>, <code>muk_ai_automation</code>, <code>muk_ai_decision</code> need a bridge before being installed together with this module (checked: <code>muk_ai_chatter</code> posts the stored answer, tokens included, as the note of a mention).</li>
+				<li>The module depends on <code>muk_mcp_access</code>.</li>
+			</ul>
+		</div>
+	</div>
+</section>

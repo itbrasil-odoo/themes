@@ -2,7 +2,7 @@ import contextvars
 import json
 import re
 
-from odoo import models
+from odoo import fields, models
 from odoo.http import request
 
 from odoo.addons.muk_ai.tools.context import with_ui_ctx
@@ -68,6 +68,13 @@ def _streams_revealed(content_key):
 
 class MukAiSession(models.Model):
     _inherit = 'muk_ai.session'
+
+    itbr_pii_enabled = fields.Boolean(compute='_compute_itbr_pii_enabled')
+
+    def _compute_itbr_pii_enabled(self):
+        enabled = self.env['itbr.muk_ai.pii.token']._enabled()
+        for session in self:
+            session.itbr_pii_enabled = enabled
 
     def _tool_dispatch_context(self):
         """Tell tool results which chat they go to, so they can be tokenized for it."""
@@ -314,8 +321,10 @@ class MukAiSession(models.Model):
         """Show the conversation and last message with real values.
 
         The stored fields keep the tokens: they are what the provider reads.
+        ``itbr_pii_enabled`` tells the composer whether to warn about attachments.
         """
         snapshot = super().get_snapshot(include_conversation=include_conversation)
+        snapshot['itbr_pii_enabled'] = self.itbr_pii_enabled
         for key in ('conversation', 'last_text'):
             if snapshot.get(key):
                 snapshot[key] = self._itbr_pii_reveal(snapshot[key])

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="itbr_muk_ai_pii.ChatComposer" t-inherit="muk_ai.ChatComposer" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('mk_attachments')]" position="after">
+            <div
+                class="itbr_pii_attachment_notice text-muted small"
+                t-if="props.attachments.length and props.session and props.session.state.itbrPiiEnabled"
+            >
+                Attachments go to the AI provider without masking personal data.
+            </div>
+        </xpath>
+    </t>
+
+</templates>

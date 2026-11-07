@@ -1,0 +1,263 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* itbr_muk_ai_pii
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0+e\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-07 16:40+0000\n"
+"PO-Revision-Date: 2026-11-07 16:40+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model,name:itbr_muk_ai_pii.model_muk_ai_approval
+msgid "AI Approval Audit"
+msgstr "Auditoria de aprovações de IA"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_ir_model_fields__ai_exposure
+msgid "AI Exposure"
+msgstr "Exposição à IA"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_ir_model_fields__ai_exposure_override
+msgid "AI Exposure Override"
+msgstr "Exceção da exposição à IA"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model,name:itbr_muk_ai_pii.model_muk_ai_session
+msgid "AI Session"
+msgstr "Sessão de IA"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.actions.act_window,name:itbr_muk_ai_pii.action_ir_model_fields_ai_exposure
+#: model:ir.ui.menu,name:itbr_muk_ai_pii.menu_ai_field_exposure
+msgid "AI field exposure"
+msgstr "Exposição dos campos à IA"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model,name:itbr_muk_ai_pii.model_itbr_muk_ai_pii_token
+msgid "AI personal data token"
+msgstr "Token de dado pessoal da IA"
+
+#. module: itbr_muk_ai_pii
+#. odoo-python
+#: code:addons/itbr_muk_ai_pii/models/muk_mcp_mixin.py:0
+msgid "Aggregate %(spec)r would be returned under a reserved or grouped name."
+msgstr ""
+"O agregado %(spec)r seria devolvido sob um nome reservado ou de agrupamento."
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure__allow
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure_auto__allow
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure_override__allow
+msgid "Allowed"
+msgstr "Permitido"
+
+#. module: itbr_muk_ai_pii
+#. odoo-javascript
+#: code:addons/itbr_muk_ai_pii/static/src/chat_composer.xml:0
+msgid "Attachments go to the AI provider without masking personal data."
+msgstr "Os anexos vão ao provedor de IA sem mascarar dados pessoais."
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_ir_model_fields__ai_exposure_auto
+msgid "Automatic AI Exposure"
+msgstr "Exposição automática à IA"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure__block
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure_auto__block
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure_override__block
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_ir_model_fields_ai_exposure_search
+msgid "Blocked"
+msgstr "Bloqueado"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_res_config_settings__itbr_muk_ai_pii_blocked_models
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_res_config_settings_form
+msgid "Blocked models"
+msgstr "Modelos bloqueados"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_res_config_settings__itbr_muk_ai_pii_email_domains
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_res_config_settings_form
+msgid "Company e-mail domains"
+msgstr "Domínios de e-mail da empresa"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model,name:itbr_muk_ai_pii.model_res_config_settings
+msgid "Config Settings"
+msgstr "Configurações"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_ir_model_fields__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_itbr_muk_ai_pii_token__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_ai_approval__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_ai_session__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_mcp_mixin__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_mcp_tool__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_res_config_settings__display_name
+msgid "Display Name"
+msgstr "Nome exibido"
+
+#. module: itbr_muk_ai_pii
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_res_config_settings_form
+msgid ""
+"E-mail addresses on these domains are kept as they are, comma-separated."
+msgstr ""
+"Os endereços de e-mail destes domínios são mantidos como estão, separados "
+"por vírgula."
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,help:itbr_muk_ai_pii.field_ir_model_fields__ai_exposure_override
+msgid "Exception to the automatic classification. Leave empty to follow it."
+msgstr "Exceção à classificação automática. Deixe vazio para segui-la."
+
+#. module: itbr_muk_ai_pii
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_ir_model_fields_ai_exposure_search
+msgid "Exposure"
+msgstr "Exposição"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model,name:itbr_muk_ai_pii.model_ir_model_fields
+msgid "Fields"
+msgstr "Campos"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_ir_model_fields__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_itbr_muk_ai_pii_token__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_ai_approval__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_ai_session__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_mcp_mixin__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_mcp_tool__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_res_config_settings__id
+msgid "ID"
+msgstr "ID"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_muk_ai_session__itbr_pii_enabled
+msgid "Itbr Pii Enabled"
+msgstr "Proteção de dados pessoais ativa"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_res_config_settings__itbr_muk_ai_pii_key_set
+msgid "Key set on the server"
+msgstr "Chave definida no servidor"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_itbr_muk_ai_pii_token__kind
+msgid "Kind"
+msgstr "Tipo"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model,name:itbr_muk_ai_pii.model_muk_mcp_tool
+msgid "MCP Tool"
+msgstr "Ferramenta MCP"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model,name:itbr_muk_ai_pii.model_muk_mcp_mixin
+msgid "MCP Tool Mixin"
+msgstr "Mixin de ferramenta MCP"
+
+#. module: itbr_muk_ai_pii
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_ir_model_fields_ai_exposure_search
+msgid "Model"
+msgstr "Modelo"
+
+#. module: itbr_muk_ai_pii
+#. odoo-python
+#: code:addons/itbr_muk_ai_pii/models/muk_mcp_mixin.py:0
+msgid "Model %(model)r is not accessible via MCP."
+msgstr "O modelo %(model)r não é acessível via MCP."
+
+#. module: itbr_muk_ai_pii
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_res_config_settings_form
+msgid "Models the assistant cannot read at all, comma-separated."
+msgstr ""
+"Modelos que o assistente não pode ler de forma alguma, separados por "
+"vírgula."
+
+#. module: itbr_muk_ai_pii
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_res_config_settings_form
+msgid ""
+"No key set on the server (ODOO_AI_PII_KEY or ai_pii_key in the Odoo "
+"configuration file): personal data is not protected."
+msgstr ""
+"Nenhuma chave definida no servidor (ODOO_AI_PII_KEY ou ai_pii_key no arquivo"
+" de configuração do Odoo): os dados pessoais não estão protegidos."
+
+#. module: itbr_muk_ai_pii
+#. odoo-python
+#: code:addons/itbr_muk_ai_pii/models/ir_model_fields.py:0
+msgid "Only administrators can change the AI exposure of a field."
+msgstr "Somente administradores podem alterar a exposição de um campo à IA."
+
+#. module: itbr_muk_ai_pii
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_res_config_settings_form
+msgid "Personal data"
+msgstr "Dados pessoais"
+
+#. module: itbr_muk_ai_pii
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_res_config_settings_form
+msgid ""
+"Personal data in the assistant's replies is swapped for tokens before it "
+"reaches the AI provider."
+msgstr ""
+"Os dados pessoais lidos pelo assistente são trocados por tokens antes de "
+"chegarem ao provedor de IA."
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_res_config_settings__itbr_muk_ai_pii_enabled
+msgid "Protect personal data"
+msgstr "Proteger dados pessoais"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_itbr_muk_ai_pii_token__session_ids
+msgid "Session"
+msgstr "Sessão"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.constraint,message:itbr_muk_ai_pii.constraint_itbr_muk_ai_pii_token_token_unique
+msgid "The token must be unique."
+msgstr "O token deve ser único."
+
+#. module: itbr_muk_ai_pii
+#. odoo-python
+#: code:addons/itbr_muk_ai_pii/models/muk_ai_approval.py:0
+msgid ""
+"This document may contain personal data (CPF, address, name) that goes to "
+"the AI provider without masking."
+msgstr ""
+"Este documento pode conter dados pessoais (CPF, endereço, nome) que vão ao "
+"provedor de IA sem mascaramento."
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_itbr_muk_ai_pii_token__token
+msgid "Token"
+msgstr "Token"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure__tokenize
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure_auto__tokenize
+#: model:ir.model.fields.selection,name:itbr_muk_ai_pii.selection__ir_model_fields__ai_exposure_override__tokenize
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_ir_model_fields_ai_exposure_search
+msgid "Tokenized"
+msgstr "Tokenizado"
+
+#. module: itbr_muk_ai_pii
+#: model:ir.model.fields,field_description:itbr_muk_ai_pii.field_itbr_muk_ai_pii_token__value
+msgid "Value"
+msgstr "Valor"
+
+#. module: itbr_muk_ai_pii
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_pii.view_ir_model_fields_ai_exposure_search
+msgid "With override"
+msgstr "Com exceção"

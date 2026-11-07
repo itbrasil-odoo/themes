@@ -107,6 +107,13 @@ class TestReturnPath(AITestCommon):
         # the snapshot is a copy: the stored conversation still has the token
         self.assertIn(self.cpf_tok, json.dumps(self.session.conversation))
 
+    def test_snapshot_flags_masking_for_the_composer(self):
+        self.assertTrue(self.session.get_snapshot()['itbr_pii_enabled'])
+        self.assertTrue(self.session.itbr_pii_enabled)
+        self.env['ir.config_parameter'].sudo().set_param('itbr_muk_ai_pii.enabled', 'False')
+        self.session.invalidate_recordset(['itbr_pii_enabled'])
+        self.assertFalse(self.session.get_snapshot()['itbr_pii_enabled'])
+
     def test_stream_split_token(self):
         published = []
         Session = type(self.session)
@@ -172,6 +179,8 @@ class TestReturnPath(AITestCommon):
 
     def test_outbound_tool_args_keep_tokens(self):
         """Tools that send data to third parties keep the tokens (R26)."""
+        # itbr_muk_ai_guard, when installed too, refuses the web tools
+        self.env['ir.config_parameter'].sudo().set_param('itbr_muk_ai_guard.block_web', 'False')
         call_patch, received = self._capture_calls()
         with call_patch:
             for name in ('generate_image', 'web_search', 'web_fetch'):
