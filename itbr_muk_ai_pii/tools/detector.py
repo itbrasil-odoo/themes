@@ -5,13 +5,22 @@ import re
 
 from .keys import TOKEN_RE
 
-CPF_RE = re.compile(r'(?<![\w.])\d{3}[. ]?\d{3}[. ]?\d{3}[-. ]?\d{2}(?![\w-])')
-CNPJ_RE = re.compile(r'(?<![\w.])\d{2}[. ]?\d{3}[. ]?\d{3}[/ ]?\d{4}[-. ]?\d{2}(?![\w-])')
-PHONE_RE = re.compile(
-    r'(?<![\w])(?:\+55\s?)?\(\d{2}\)\s?9?\d{4}-?\d{4}(?!\d)'
-    r'|(?<![\w])\+55\s?\d{2}\s?9?\d{4}-?\d{4}(?!\d)'
+CPF_RE = r'(?<![\w.])\d{3}[. ]?\d{3}[. ]?\d{3}[-. ]?\d{2}(?![\w-])'
+CNPJ_RE = r'(?<![\w.])\d{2}[. ]?\d{3}[. ]?\d{3}[/ ]?\d{4}[-. ]?\d{2}(?![\w-])'
+PHONE_RE = (
+    r'(?<![\w])(?:\+55\s*)?\(\d{2}\)\s?9?\d{4}-?\d{4}(?!\d)'
+    r'|(?<![\w])\+55\s*\d{2}\s?9?\d{4}-?\d{4}(?!\d)'
+    # no +55 or parentheses: needs a separator, so protocol numbers stay out
+    r'|(?<![\w+])(?:55 )?\d{2} 9?\d{4}[- ]\d{4}(?!\d)'
 )
-EMAIL_RE = re.compile(r'(?<![\w.+-])([\w.+-]+)@([\w-]+(?:\.[\w-]+)+)(?![\w-])', re.IGNORECASE)
+EMAIL_RE = r'(?<![\w.+-])(?P<local>[\w.+-]+)@(?P<domain>[\w-]+(?:\.[\w-]+)+)(?![\w-])'
+# One pass, leftmost match wins and the first alternative wins on a tie. Existing
+# tokens come first so they are kept; the e-mail comes before CPF/CNPJ so a
+# document used as local part does not leak the domain.
+DETECT_RE = re.compile(
+    rf'(?P<token>{TOKEN_RE.pattern})|(?P<email>{EMAIL_RE})|(?P<cnpj>{CNPJ_RE})'
+    rf'|(?P<cpf>{CPF_RE})|(?P<phone>{PHONE_RE})'
+)
 
 
 def _digits(value):
@@ -55,44 +64,20 @@ def tokenize_text(text, emit, email_domains=frozenset()):
     Existing ``TYPE#hex`` tokens are left as they are.
     """
     domains = {d.lower() for d in email_domains}
-    # Order matters: CNPJ before CPF (longer first), then e-mail, then phone.
-    rules = (
-        (CNPJ_RE, lambda m: emit('CNPJ', _digits(m.group())) if valid_cnpj(m.group()) else None),
-        (CPF_RE, lambda m: emit('CPF', _digits(m.group())) if valid_cpf(m.group()) else None),
-        (EMAIL_RE, lambda m: None if m.group(2).lower() in domains
-         else emit('EMAIL', m.group().strip().lower())),
-        (PHONE_RE, lambda m: emit('PHONE', _normalize_phone(m.group()))),
-    )
-    # Split on tokens so nothing inside them is rewritten, and so that the
-    # output of an earlier rule is not scanned again by a later one.
-    parts = []
-    last = 0
-    for token in TOKEN_RE.finditer(text):
-        parts.append((text[last:token.start()], True))
-        parts.append((token.group(), False))
-        last = token.end()
-    parts.append((text[last:], True))
-    out = []
-    for chunk, scan in parts:
-        if scan:
-            chunk = _apply(chunk, rules)
-        out.append(chunk)
-    return ''.join(out)
 
+    def replace(m):
+        raw = m.group()
+        kind = m.lastgroup
+        if kind == 'token':
+            return raw
+        if kind == 'email':
+            if m.group('domain').lower() in domains:
+                return raw
+            return emit('EMAIL', raw.strip().lower())
+        if kind == 'cnpj':
+            return emit('CNPJ', _digits(raw)) if valid_cnpj(raw) else raw
+        if kind == 'cpf':
+            return emit('CPF', _digits(raw)) if valid_cpf(raw) else raw
+        return emit('PHONE', _normalize_phone(raw))
 
-def _apply(chunk, rules):
-    # Mark replaced spans with placeholders so later rules skip them.
-    replaced = []
-
-    def make(fn):
-        def sub(m):
-            value = fn(m)
-            if value is None:
-                return m.group()
-            replaced.append(value)
-            return f'\x00{len(replaced) - 1}\x00'
-        return sub
-
-    for regex, fn in rules:
-        chunk = regex.sub(make(fn), chunk)
-    return re.sub(r'\x00(\d+)\x00', lambda m: replaced[int(m.group(1))], chunk)
+    return DETECT_RE.sub(replace, text)
