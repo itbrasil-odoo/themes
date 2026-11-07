@@ -51,16 +51,24 @@ class MCPMixin(models.AbstractModel):
     @api.model
     def _resolve_resource_target(self, uri):
         """Refuse a record binary field the exposure rules block (e.g. employee photos)."""
-        kind, params = parse_uri(uri) or (None, {})
+        kind, params = (parse_uri(uri) if isinstance(uri, str) else None) or (None, {})
+        model = field = None
         if kind == 'record_field':
             model, field = params['model'], params['field']
-            if model in self._itbr_pii_blocked_models() or (
-                model in self.env
+        elif kind == 'attachment':
+            attachment = self.env['ir.attachment'].sudo().browse(params['attachment_id']).exists()
+            model, field = attachment.res_model, attachment.res_field
+        if model and (
+            model in self._itbr_pii_blocked_models()
+            or (
+                field
+                and model in self.env
                 and self.env['ir.model.fields']._ai_exposure_map(model).get(field) == 'block'
-            ):
-                raise AccessError(
-                    _('Model %(model)r is not accessible via MCP.', model=model)
-                )
+            )
+        ):
+            raise AccessError(
+                _('Model %(model)r is not accessible via MCP.', model=model)
+            )
         return super()._resolve_resource_target(uri)
 
     @api.model

@@ -116,3 +116,39 @@ class TestDocuments(AITestCommon):
         text, _i = self.env['muk_mcp.tool']._call('list_models', {'limit': 1000}, self.env)
         names = {r['model'] for r in json.loads(text)}
         self.assertFalse(names & {'muk_ai.session.event', 'itbr.muk_ai.pii.token', 'muk_ai.session'})
+
+    def test_attachment_signed_by_res_model(self):
+        Att = self.env['ir.attachment']
+        a1 = Att.create({'name': 'a', 'raw': b'x', 'res_model': 'res.partner', 'res_id': self.partner.id})
+        a2 = Att.create({'name': 'b', 'raw': b'x', 'res_model': 'res.partner', 'res_id': self.partner.id})
+        a3 = Att.create({'name': 'c', 'raw': b'x', 'res_model': 'res.company', 'res_id': self.env.company.id})
+        session = self.env['muk_ai.session'].create({'name': 'att'})
+        gate = session._check_approval_gate('read_resource', {'uri': f'odoo://attachment/{a1.id}'})
+        self.assertEqual(gate['risk']['model'], 'res.partner')
+        session.approved_signatures = [gate['risk']['signature']]
+        self.assertEqual(
+            session._check_approval_gate('read_resource', {'uri': f'odoo://attachment/{a2.id}'})['action'],
+            'auto_approved')
+        self.assertEqual(
+            session._check_approval_gate('read_resource', {'uri': f'odoo://attachment/{a3.id}'})['action'],
+            'pause')
+
+    def test_signature_of_one_model_does_not_pass_another(self):
+        session = self.env['muk_ai.session'].create({'name': 'sig'})
+        session.approved_signatures = [self.Approval._signature('print_report', 'res.company')]
+        gate = session._check_approval_gate(
+            'print_report', {'report_ref': self.report.report_name, 'ids': [self.partner.id]})
+        self.assertEqual(gate['action'], 'pause')
+
+    def test_non_string_uri_does_not_crash(self):
+        for uri in (None, 5, ['x']):
+            self.assertFalse(self.Approval._assess_risk('read_resource', {'uri': uri}).get('model'))
+
+    def test_blocked_field_attachment_refused(self):
+        field = self.env['ir.model.fields']._get('res.partner', 'image_1920')
+        field.sudo().write({'ai_exposure_override': 'block'})
+        att = self.env['ir.attachment'].sudo().create({
+            'name': 'img', 'raw': b'x', 'res_model': 'res.partner',
+            'res_id': self.partner.id, 'res_field': 'image_1920'})
+        with self.assertRaises(AccessError):
+            self.env['muk_mcp.mixin']._resolve_resource_target(f'odoo://attachment/{att.id}')

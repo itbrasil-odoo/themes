@@ -19,8 +19,13 @@ class MukAiApproval(models.Model):
             report = self.env['muk_mcp.mixin']._resolve_report(arguments.get('report_ref') or '')
             model = report.model if report else ''
         else:
-            kind, params = parse_uri(arguments.get('uri')) or (None, {})
-            model = {'attachment': 'ir.attachment', 'record_field': (params or {}).get('model')}.get(kind, '')
+            uri = arguments.get('uri')
+            kind, params = (parse_uri(uri) if isinstance(uri, str) else None) or (None, {})
+            if kind == 'attachment':
+                attachment = self.env['ir.attachment'].sudo().browse(params['attachment_id']).exists()
+                model = attachment.res_model or 'ir.attachment'
+            else:
+                model = params.get('model') if kind == 'record_field' else ''
         return {
             'tool': tool_name,
             'model': model or '',
