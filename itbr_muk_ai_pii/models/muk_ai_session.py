@@ -102,8 +102,14 @@ class MukAiSession(models.Model):
             return inputs
         return [safe if item == real else item for item in inputs]
 
-    def _build_request_inputs(self):
-        inputs = super()._build_request_inputs()
+    def _materialize_round_inputs(self, provider, cache, notice=None):
+        """Tokenize the round inputs as they leave for the provider (R25).
+
+        Done on the final list, so items any module adds in
+        ``_build_request_inputs`` and the round ``notice`` are covered too.
+        Only text is touched: materialized attachment blocks pass as they are.
+        """
+        inputs = super()._materialize_round_inputs(provider, cache, notice=notice)
         if not self._itbr_pii_on():
             return inputs
         return self._itbr_pii_items(self._itbr_pii_mask_ui_ctx(inputs))

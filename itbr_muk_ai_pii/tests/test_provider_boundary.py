@@ -77,6 +77,10 @@ class TestProviderBoundary(AITestCommon):
             'usage': {'input_tokens': 2, 'output_tokens': 1},
         }
 
+    def _sent(self, notice=None):
+        """The inputs of one provider round, as the chat loop builds them."""
+        return self.session._materialize_round_inputs(self.provider, {}, notice=notice)
+
     def _ui_ctx(self, inputs):
         found = [
             block['text']
@@ -101,7 +105,7 @@ class TestProviderBoundary(AITestCommon):
             {'role': 'user', 'content': [{'type': 'input_text', 'text': 'oi'}]},
             {'type': 'message', 'content': [{'type': 'output_text', 'text': f'CPF {CPF_TEXT}'}]},
         ]
-        inputs = self.session._build_request_inputs()
+        inputs = self._sent()
         self.assertIn(tok('CPF', CPF), texts(inputs))
         self.assertNotIn(CPF_TEXT, texts(inputs))
         self.assertIn(CPF_TEXT, texts(self.session.conversation))
@@ -135,10 +139,43 @@ class TestProviderBoundary(AITestCommon):
         self.session.agent_id = self.env['muk_ai.agent'].create({
             'name': 'PII agent', 'system_prompt': f'Contato do cliente: {CPF_TEXT}',
         })
-        system = self.session._build_request_inputs()[0]
+        system = self._sent()[0]
         self.assertEqual(system['role'], 'system')
         self.assertIn(tok('CPF', CPF), texts(system))
         self.assertNotIn(CPF_TEXT, texts(system))
+
+    def test_extension_item_tokenized(self):
+        """An item another module adds in ``_build_request_inputs`` is covered too."""
+        Session = type(self.session)
+        original = Session._build_request_inputs
+        extra = {'role': 'user', 'content': [{'type': 'input_text', 'text': f'linked {CPF_TEXT}'}]}
+
+        def extended(session_self):
+            return [*original(session_self), extra]
+
+        with patch.object(Session, '_build_request_inputs', extended), \
+                self._capture([self._text()]) as captured:
+            self.session.start('oi')
+        sent = texts(captured[0])
+        self.assertIn(tok('CPF', CPF), sent)
+        self.assertNotIn(CPF_TEXT, sent)
+        self.assertEqual(extra['content'][0]['text'], f'linked {CPF_TEXT}')
+
+    def test_notice_tokenized(self):
+        notice = {'role': 'user', 'content': [{'type': 'input_text', 'text': f'aviso {CPF_TEXT}'}]}
+        sent = texts(self._sent(notice=notice))
+        self.assertIn(tok('CPF', CPF), sent)
+        self.assertNotIn(CPF_TEXT, sent)
+        self.assertEqual(notice['content'][0]['text'], f'aviso {CPF_TEXT}')
+
+    def test_attachment_blocks_untouched(self):
+        image = {'type': 'input_image', 'image_url': f'data:image/png;base64,{CPF}'}
+        self.session.conversation = [
+            {'role': 'user', 'content': [{'type': 'input_text', 'text': CPF_TEXT}, image]},
+        ]
+        [item] = [i for i in self._sent() if i.get('role') == 'user' and image in i['content']]
+        self.assertEqual(item['content'][1], image)
+        self.assertEqual(item['content'][0]['text'], tok('CPF', CPF))
 
     def test_compaction_tokenized(self):
         prefix = [{'role': 'user', 'content': [{'type': 'input_text', 'text': f'CPF {CPF_TEXT}'}]}]
@@ -182,12 +219,12 @@ class TestProviderBoundary(AITestCommon):
         self.session.view_context = {
             'kind': 'record', 'model': 'res.partner', 'id': company.id, 'display_name': 'ACME Ltda',
         }
-        self.assertIn('"ACME Ltda"', self._ui_ctx(self.session._build_request_inputs()))
+        self.assertIn('"ACME Ltda"', self._ui_ctx(self._sent()))
         team = self.user.partner_id
         self.session.view_context = {
             'kind': 'record', 'model': 'res.partner', 'id': team.id, 'display_name': team.name,
         }
-        self.assertIn('"Vera Vendedora"', self._ui_ctx(self.session._build_request_inputs()))
+        self.assertIn('"Vera Vendedora"', self._ui_ctx(self._sent()))
 
     def test_ui_ctx_portal_user_name_tokenized(self):
         portal = new_test_user(
@@ -196,11 +233,11 @@ class TestProviderBoundary(AITestCommon):
         self.session.view_context = {
             'kind': 'record', 'model': 'res.users', 'id': portal.id, 'display_name': 'Paulo Portal',
         }
-        ctx = self._ui_ctx(self.session._build_request_inputs())
+        ctx = self._ui_ctx(self._sent())
         self.assertIn(tok('NAME', 'Paulo Portal'), ctx)
         self.assertNotIn('Paulo Portal', ctx)
         self.session.view_context = {
             'kind': 'record', 'model': 'res.users', 'id': self.user.id,
             'display_name': 'Vera Vendedora',
         }
-        self.assertIn('"Vera Vendedora"', self._ui_ctx(self.session._build_request_inputs()))
+        self.assertIn('"Vera Vendedora"', self._ui_ctx(self._sent()))
