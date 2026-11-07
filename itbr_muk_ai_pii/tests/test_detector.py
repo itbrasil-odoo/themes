@@ -55,6 +55,22 @@ class TestDetector(BaseCase):
     def test_phone_landline(self):
         self.assertEqual(tokenize_text('(11) 3456-7890', emit), 'PHONE<551134567890>')
 
+    def test_phone_invalid_area_code_untouched(self):
+        self.assertEqual(tokenize_text('20 1234-5678', emit), '20 1234-5678')
+        self.assertEqual(tokenize_text('(20) 91234-5678', emit), '(20) 91234-5678')
+        self.assertEqual(tokenize_text('+55 10 91234-5678', emit), '+55 10 91234-5678')
+
+    def test_year_ranges_not_phone(self):
+        self.assertEqual(tokenize_text('12 2024-2025', emit), '12 2024-2025')
+        self.assertEqual(tokenize_text('page 12 2024-2025', emit), 'page 12 2024-2025')
+        # Valid DDD and landline shape, but both halves are years: rejected on purpose.
+        self.assertEqual(tokenize_text('11 2024-2025', emit), '11 2024-2025')
+
+    def test_separator_only_number_shape(self):
+        self.assertEqual(tokenize_text('11 3456-7890', emit), 'PHONE<551134567890>')
+        self.assertEqual(tokenize_text('11 1234-5678', emit), '11 1234-5678')
+        self.assertEqual(tokenize_text('11 81234-5678', emit), '11 81234-5678')
+
     def test_bare_digits_not_phone(self):
         self.assertEqual(tokenize_text('11912345678', emit), '11912345678')
         self.assertEqual(tokenize_text('20240317551', emit), '20240317551')

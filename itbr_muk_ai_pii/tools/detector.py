@@ -11,7 +11,7 @@ PHONE_RE = (
     r'(?<![\w])(?:\+55\s*)?\(\d{2}\)\s?9?\d{4}-?\d{4}(?!\d)'
     r'|(?<![\w])\+55\s*\d{2}\s?9?\d{4}-?\d{4}(?!\d)'
     # no +55 or parentheses: needs a separator, so protocol numbers stay out
-    r'|(?<![\w+])(?:55 )?\d{2} 9?\d{4}[- ]\d{4}(?!\d)'
+    r'|(?P<bare>(?<![\w+])(?:55 )?\d{2} 9?\d{4}[- ]\d{4}(?!\d))'
 )
 EMAIL_RE = r'(?<![\w.+-])(?P<local>[\w.+-]+)@(?P<domain>[\w-]+(?:\.[\w-]+)+)(?![\w-])'
 # One pass, leftmost match wins and the first alternative wins on a tie. Existing
@@ -51,6 +51,30 @@ def valid_cnpj(value):
     return True
 
 
+# Real Brazilian area codes (DDD).
+AREA_CODES = frozenset(
+    '11 12 13 14 15 16 17 18 19 21 22 24 27 28 31 32 33 34 35 37 38 41 42 43 44 45 46 47 48 49 '
+    '51 53 54 55 61 62 63 64 65 66 67 68 69 71 73 74 75 77 79 81 82 83 84 85 86 87 88 89 '
+    '91 92 93 94 95 96 97 98 99'.split()
+)
+YEAR_RE = re.compile(r'(19|20)\d{2}')
+
+
+def _phone_value(raw, bare):
+    """Return the normalized phone, or None when ``raw`` does not look like one."""
+    value = _normalize_phone(raw)
+    if value[2:4] not in AREA_CODES:
+        return None
+    if bare:
+        number = value[4:]
+        halves = _digits(raw)[-8:]
+        if YEAR_RE.fullmatch(halves[:4]) and YEAR_RE.fullmatch(halves[4:]):
+            return None  # year range such as "12 2024-2025"
+        if not (len(number) == 9 and number[0] == '9' or len(number) == 8 and number[0] in '2345'):
+            return None
+    return value
+
+
 def _normalize_phone(raw):
     digits = _digits(raw)
     if len(digits) in (10, 11):
@@ -78,6 +102,7 @@ def tokenize_text(text, emit, email_domains=frozenset()):
             return emit('CNPJ', _digits(raw)) if valid_cnpj(raw) else raw
         if kind == 'cpf':
             return emit('CPF', _digits(raw)) if valid_cpf(raw) else raw
-        return emit('PHONE', _normalize_phone(raw))
+        phone = _phone_value(raw, m.group('bare'))
+        return raw if phone is None else emit('PHONE', phone)
 
     return DETECT_RE.sub(replace, text)
