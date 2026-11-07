@@ -1,5 +1,5 @@
 from odoo import _, api, models
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, UserError
 
 from odoo.orm.models import regex_field_agg
 
@@ -10,6 +10,7 @@ from ..tools.records import Masker
 SESSION_KEY = 'itbr_pii_session_id'
 # read-like methods reachable by call_method whose results are masked here;
 # other results are left to the detector at the provider boundary
+GROUP_METHODS = frozenset({'read_group', 'formatted_read_group', 'web_read_group'})
 READ_METHODS = frozenset({
     'read', 'search_read', 'web_read', 'web_search_read', 'name_search',
     'read_group', 'formatted_read_group', 'web_read_group', 'web_save',
@@ -120,10 +121,53 @@ class MCPMixin(models.AbstractModel):
 
     @api.model
     def _mcp_call_method(self, model, method, ids=None, args=None, kwargs=None):
+        if method in GROUP_METHODS:
+            self._itbr_pii_check_group_keys(method, args, kwargs)
         result = super()._mcp_call_method(model, method, ids=ids, args=args, kwargs=kwargs)
         if method not in READ_METHODS:
             return result
         return self._itbr_pii_mask_method_result(model, method, args, kwargs, result)
+
+    @api.model
+    def _itbr_pii_group_args(self, method, args, kwargs):
+        """Return ``(groupby, specs)`` of a grouping method call."""
+        positional = coerce_json_value(args) or []
+        keyword = dict(coerce_json_value(kwargs) or {})
+
+        def arg(name, index, default):
+            return keyword.get(name, positional[index] if len(positional) > index else default)
+
+        if method == 'read_group':
+            groupby, specs = arg('groupby', 2, []), arg('fields', 1, [])
+        else:
+            groupby, specs = arg('groupby', 1, []), arg('aggregates', 2, [])
+        groupby = [groupby] if isinstance(groupby, str) else list(groupby or [])
+        return [str(g) for g in groupby], [str(spec) for spec in specs or []]
+
+    @api.model
+    def _itbr_pii_check_group_keys(self, method, args, kwargs):
+        """Refuse aggregates whose result key would collide with a groupby or meta key.
+
+        Such a key would carry aggregated values under a name the masker treats
+        as a group label or a count.
+        """
+        groupby, specs = self._itbr_pii_group_args(method, args, kwargs)
+        taken = set(groupby) | {g.split(':')[0] for g in groupby}
+        for spec in specs:
+            if method == 'read_group':
+                if ':' not in spec:
+                    continue  # a plain field name, no alias
+                match = regex_field_agg.match(spec)
+                key = match.group(1) if match else spec
+            else:
+                key = spec
+                if key == '__count':
+                    continue
+            if key in taken or key.startswith('__'):
+                raise UserError(_(
+                    'Aggregate %(spec)r would be returned under a reserved or grouped name.',
+                    spec=spec,
+                ))
 
     @api.model
     def _itbr_pii_mask_method_result(self, model, method, args, kwargs, result):

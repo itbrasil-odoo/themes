@@ -430,3 +430,41 @@ class TestRecords(AITestCommon):
         self.assertEqual(rows[0]['name'], tok('NAME', 'Maria Pessoa'))
         self.assertEqual(rows[0]['vat'], tok('CPF', CPF))
         self.assertEqual(rows[0]['city'], 'Sorocaba')
+
+    # -- fix round 3 -----------------------------------------------------
+    def _group_call(self, method, kwargs):
+        return self._call('call_method', {'model': 'res.partner', 'method': method, 'kwargs': kwargs})
+
+    def test_read_group_alias_colliding_with_groupby_refused(self):
+        from odoo.exceptions import UserError
+        with self.assertRaises(UserError):
+            self._group_call('read_group', {
+                'domain': [['id', '=', self.person.id]],
+                'fields': ['is_company:array_agg(vat)'], 'groupby': ['is_company'],
+            })
+
+    def test_read_group_alias_meta_key_refused(self):
+        from odoo.exceptions import UserError
+        with self.assertRaises(UserError):
+            self._group_call('read_group', {
+                'domain': [['id', '=', self.person.id]],
+                'fields': ['__count:array_agg(vat)'], 'groupby': ['is_company', 'city'],
+                'lazy': False,
+            })
+        with self.assertRaises(UserError):
+            self._group_call('formatted_read_group', {
+                'domain': [['id', '=', self.person.id]],
+                'groupby': ['is_company'], 'aggregates': ['__fold:array_agg'],
+            })
+
+    def test_read_group_count_survives(self):
+        [group] = self._group_call('read_group', {
+            'domain': [['id', '=', self.person.id]], 'fields': ['city'],
+            'groupby': ['is_company', 'city'], 'lazy': False,
+        })
+        self.assertEqual(group['__count'], 1)
+        from ..tools.records import Masker
+        masker = Masker(self.tool_env, self.session.sudo())
+        [group] = masker.groups('res.partner', [], [], [{'__count': ['x'], '__fold': 'y'}])
+        self.assertNotIn('__count', group)
+        self.assertNotIn('__fold', group)

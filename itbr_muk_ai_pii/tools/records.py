@@ -460,6 +460,12 @@ class Masker:
                 sub['groups'] = self.groups(
                     model_name, groupby[1:], aggregates, sub.get('groups') or [], unfold_model
                 )
+            if '__count' in group and not (
+                isinstance(group['__count'], int) and not isinstance(group['__count'], bool)
+            ):
+                group.pop('__count')
+            if '__fold' in group and not isinstance(group['__fold'], bool):
+                group.pop('__fold')
             for key in list(group):
                 if key in specs or key in aggs or key in GROUP_META_KEYS or key in ('__records', '__groups'):
                     continue
