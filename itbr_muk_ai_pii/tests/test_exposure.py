@@ -101,3 +101,18 @@ class TestExposure(TransactionCase):
         self.env.cr.execute('UPDATE ir_model_fields SET ai_exposure = NULL WHERE id = %s', [field.id])
         self.env.registry.clear_cache()
         self.assertEqual(self.env['ir.model.fields']._ai_exposure_map('res.partner')['vat'], 'tokenize')
+
+    def test_tokenize_only_text_and_date_types(self):
+        self.assertEqual(classify_field('ir.mail_server', 'max_email_size', 'integer'), 'allow')
+        self.assertEqual(classify_field('res.company', 'hr_presence_control_email', 'boolean'), 'allow')
+        self.assertEqual(classify_field('hr.employee', 'country_of_birth', 'many2one'), 'allow')
+        self.assertEqual(classify_field('res.partner', 'email', 'char'), 'tokenize')
+        self.assertEqual(classify_field('res.partner', 'x_data_nascimento', 'date'), 'tokenize')
+        self.assertEqual(classify_field('res.partner', 'x_nascimento_hora', 'datetime'), 'tokenize')
+        self.assertEqual(classify_field('res.partner', 'x_nota_email', 'html'), 'tokenize')
+        self.assertEqual(classify_field('res.partner', 'x_emails', 'text'), 'tokenize')
+        self.assertEqual(self._exposure('res.partner', 'email'), 'tokenize')
+
+    def test_block_ignores_type(self):
+        self.assertEqual(classify_field('res.partner', 'bank_count', 'integer'), 'block')
+        self.assertEqual(classify_field('res.partner', 'private_flag', 'boolean'), 'block')

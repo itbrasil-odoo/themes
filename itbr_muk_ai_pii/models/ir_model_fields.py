@@ -13,6 +13,8 @@ BLOCK_NAMES = frozenset({
 })
 BLOCK_FIRST_PARTS = frozenset({'bank', 'private'})
 
+# only values that can carry text or a date are worth tokenizing
+TOKENIZE_TYPES = frozenset({'char', 'text', 'html', 'date', 'datetime'})
 TOKENIZE_NAMES = frozenset({
     'vat', 'cnpj_cpf', 'birthday', 'contact_name', 'partner_name',
     'invoice_partner_display_name',
@@ -44,7 +46,7 @@ def classify_field(model, name, ttype):
         or (model == 'hr.employee' and ttype == 'binary')
     ):
         return 'block'
-    if (
+    if ttype in TOKENIZE_TYPES and (
         name in TOKENIZE_NAMES
         or name.endswith(TOKENIZE_SUFFIXES)
         or any(part.startswith(TOKENIZE_PART_PREFIXES) or part in TOKENIZE_PARTS for part in parts)
