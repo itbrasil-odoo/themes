@@ -474,6 +474,24 @@ per-round latency. Requested reasoning effort is clamped to each
 model's supported tiers, with a transparent retry-without-effort
 backstop if a provider still refuses.
 
+**Syncing the model catalogue** _(IT Brasil fork)_. The catalogue ships
+in `data/model.xml`, so a model released after the last upstream sync
+is missing until the next one. **Sync Models** on a provider that lists
+its models (`supports_model_listing`; Anthropic: `GET /v1/models`)
+creates the missing ones with their context window and effort tiers.
+The listing carries no prices, and usage costs and every budget are
+computed from the rates, so synced models arrive **inactive**, flagged
+_Synced from API_, with editable rates, and cannot be activated until
+the input and output rates are filled in. Dated snapshots
+(`claude-haiku-4-5-20251001`) count as their alias; catalogued models
+are never overwritten.
+
+**API key and secrets** _(IT Brasil fork)_. Clients read the key
+through `muk_ai.provider._resolve_api_key()`, which extensions override
+to take it from outside the database (see `itbr_muk_ai_guard`). Provider
+errors pass through `_mask_secrets()`, which hides the provider's key
+and any `sk-ant-` / `sk-or-` / `sk-` / `AIza` shaped token.
+
 ## Tool Dispatch via muk_mcp
 
 Agents call exactly the same tool surface as your external MCP
