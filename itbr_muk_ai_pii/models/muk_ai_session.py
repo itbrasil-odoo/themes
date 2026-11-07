@@ -3,12 +3,14 @@ import json
 import re
 
 from odoo import models
+from odoo.http import request
 
 from odoo.addons.muk_ai.tools.context import with_ui_ctx
 from odoo.addons.muk_mcp.core.registry import MIXIN
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
 from ..tools.detector import tokenize_text
+from ..tools.echo import mask_output, mask_patterns, mask_tree
 from ..tools.keys import TOKEN_RE
 from ..tools.records import PARTNER, USERS, Masker
 
@@ -40,10 +42,14 @@ TOKEN_TAIL_RE = re.compile(
     % ('|'.join(TOKEN_KINDS), '|'.join(_KIND_PREFIXES))
 )
 TAIL_KEY = 'itbr_pii_tail'
-STREAM_KEYS = ('text', 'reasoning')
+# assistant text, reasoning and the live compaction summary
+STREAM_KEYS = ('text', 'reasoning', 'buffer')
 TOOL_ARGS_PREFIX = 'tool_args_'
 # Events shown as they come from the provider, outside ``_append_event``.
 REVEALED_PUBLISHES = frozenset({'compact_update', 'view_context'})
+# Stored with tokens, read by the web client: shown with real values.
+REVEALED_READS = ('view_context', 'last_text', 'pending_ask')
+MCP_PATH = '/mcp'
 
 # ``{real value: token}`` of the tool call being dispatched, so its echoes are
 # masked again, in the output and in the view context it pins.
@@ -58,30 +64,6 @@ def _streams_revealed(content_key):
     return content_key in STREAM_KEYS or (
         content_key.startswith(TOOL_ARGS_PREFIX) and not content_key.endswith('_last')
     )
-
-
-def _mask_patterns(mask):
-    """Return ``(pattern, token)`` pairs, longest value first.
-
-    A value is matched as a whole word, raw and as JSON escapes it.
-    """
-    pairs = []
-    for value in sorted(mask, key=len, reverse=True):
-        for form in {value, json.dumps(value)[1:-1]}:
-            pairs.append((re.compile(r'(?<!\w)%s(?!\w)' % re.escape(form)), mask[value]))
-    return pairs
-
-
-def _mask_any(data, pairs):
-    if isinstance(data, str):
-        for pattern, token in pairs:
-            data = pattern.sub(token, data)
-        return data
-    if isinstance(data, dict):
-        return {k: _mask_any(v, pairs) for k, v in data.items()}
-    if isinstance(data, (list, tuple)):
-        return [_mask_any(v, pairs) for v in data]
-    return data
 
 
 class MukAiSession(models.Model):
@@ -237,6 +219,34 @@ class MukAiSession(models.Model):
         """Events are what users see: store and broadcast them with real values."""
         return super()._append_event(self._itbr_pii_reveal(entry))
 
+    def _state_metrics(self):
+        """The snapshot and the bus show the pinned view context with real values."""
+        metrics = super()._state_metrics()
+        if metrics.get('view_context'):
+            metrics['view_context'] = self._itbr_pii_reveal(metrics['view_context'])
+        return metrics
+
+    def _itbr_pii_reads_revealed(self):
+        """Whether field reads are for a person: not a chat tool, not an MCP client."""
+        if self.env.context.get('muk_mcp_session_id'):
+            return False
+        req = request
+        path = req and req.httprequest and req.httprequest.path or ''
+        return not (path == MCP_PATH or path.startswith(MCP_PATH + '/'))
+
+    def _read_format(self, fnames, load='_classic_read'):
+        """Show the web client the stored-with-tokens fields with real values."""
+        rows = super()._read_format(fnames, load=load)
+        wanted = [f for f in REVEALED_READS if f in fnames]
+        if not wanted or not self._itbr_pii_reads_revealed():
+            return rows
+        for row in rows:
+            session = self.browse(row['id'])
+            for fname in wanted:
+                if row.get(fname):
+                    row[fname] = session._itbr_pii_reveal(row[fname])
+        return rows
+
     def _publish_event(self, event_type, payload):
         """Show the payloads published outside ``_append_event`` with real values.
 
@@ -265,7 +275,7 @@ class MukAiSession(models.Model):
         mask = self._itbr_pii_mask_of(arguments)
         if not mask:
             return super()._dispatch_tool_call(name, arguments, call_id)
-        pairs = _mask_patterns(mask)
+        pairs = mask_patterns(mask)
         reset = _DISPATCH_MASK.set(pairs)
         try:
             output, ok = super()._dispatch_tool_call(
@@ -273,13 +283,13 @@ class MukAiSession(models.Model):
             )
         finally:
             _DISPATCH_MASK.reset(reset)
-        return _mask_any(output, pairs), ok
+        return mask_output(output, pairs), ok
 
     def _view_context_from_action(self, tool_name, action):
         """The view context a tool pins goes to the provider: keep its tokens."""
         payload = super()._view_context_from_action(tool_name, action)
         if payload and (pairs := _DISPATCH_MASK.get()):
-            payload = _mask_any(payload, pairs)
+            payload = mask_tree(payload, pairs)
         return payload
 
     def _enter_waiting_approval(self, call, tool_calls, outputs, index, has_terminating, gate):

@@ -342,3 +342,92 @@ class TestReturnPath(AITestCommon):
         ]
         self.assertEqual(snap['streamed_text'], shown)
         self.assertFalse(re.search(r'(CPF|NAME)#', json.dumps(snap)))
+
+    # -- fix round 2 ----------------------------------------------------
+    def _echo(self, arguments, output, name='search_read'):
+        """Dispatch ``name`` with ``arguments``; the tool answers ``output``."""
+        def fake(self_arg, tool, args, env, enforce_scope=None):
+            return output, {}
+
+        with patch.object(
+            type(self.env['muk_mcp.tool']), '_call', autospec=True, side_effect=fake,
+        ):
+            result, ok = self.session._dispatch_tool_call(name, arguments, 'c-echo')
+        self.assertTrue(ok)
+        return result
+
+    def test_view_context_revealed_for_the_user(self):
+        args = {'model': 'res.partner', 'domain': json.dumps([['name', '=', self.name_tok]])}
+        with self._mock_responses([self._call('open_view', args), self._text('ok')]):
+            self.session.start('mostre')
+        self.env.flush_all()
+        self.env.cr.execute(
+            'SELECT view_context::text FROM muk_ai_session WHERE id = %s', [self.session.id],
+        )
+        stored = self.env.cr.fetchone()[0]
+        self.assertIn(self.name_tok, stored)
+        self.assertNotIn('Maria', stored)
+        shown = [
+            self.session.get_snapshot()['view_context'],
+            self.session._state_metrics()['view_context'],
+            self.session.read(['view_context'])[0]['view_context'],
+            self.session.web_read({'view_context': {}})[0]['view_context'],
+        ]
+        for value in shown:
+            self.assertEqual(value['domain'], [['name', '=', NAME]])
+
+    def test_view_context_kept_for_tools(self):
+        """A chat tool reading the session gets the stored tokens, never the values."""
+        self.session.view_context = {
+            'kind': 'list', 'model': 'res.partner', 'domain': [['name', '=', self.name_tok]],
+        }
+        tool_env = self.session._tool_dispatch_env()
+        [row] = tool_env['muk_ai.session'].browse(self.session.id).read(['view_context'])
+        self.assertEqual(row['view_context']['domain'], [['name', '=', self.name_tok]])
+
+    def test_echo_mask_structural(self):
+        store = self.env['itbr.muk_ai.pii.token']
+        doc_tok = store._emit('DOC', '4242', self.session.sudo())
+        ana_tok = store._emit('NAME', 'Ana', self.session.sudo())
+        rows = [{'id': 4242, 'ref': '4242', 'name': 'Ana', 'Ana': 1, 'note': 'Banana da Ana'}]
+        output = self._echo(
+            {'model': 'res.partner', 'domain': [['ref', '=', doc_tok], ['name', '=', ana_tok]]},
+            json.dumps(rows, indent=2),
+        )
+        expected = [{
+            'id': 4242, 'ref': doc_tok, 'name': ana_tok, 'Ana': 1, 'note': f'Banana da {ana_tok}',
+        }]
+        self.assertEqual(output, json.dumps(expected, indent=2))
+
+    def test_echo_mask_case_insensitive(self):
+        output = self._echo(
+            {'model': 'res.partner', 'domain': [['name', '=', self.name_tok]]},
+            'Contato MARIA JOSÉ PESSOA atualizado',
+        )
+        self.assertEqual(output, f'Contato {self.name_tok} atualizado')
+
+    def test_echo_mask_formatted_cpf(self):
+        output = self._echo(
+            {'model': 'res.partner', 'domain': [['vat', '=', self.cpf_tok]]},
+            json.dumps({'vat': '123.456.789-09', 'id': 7}),
+        )
+        self.assertEqual(json.loads(output), {'vat': self.cpf_tok, 'id': 7})
+
+    def test_echo_mask_double_encoded(self):
+        output = self._echo(
+            {'model': 'res.partner', 'domain': [['name', '=', self.name_tok]]},
+            json.dumps(json.dumps({'name': NAME})),
+        )
+        self.assertIn(self.name_tok, output)
+        self.assertNotIn('Maria', output)
+        self.assertNotIn('Pessoa', output)
+
+    def test_stream_compaction_revealed(self):
+        head, rest = self.name_tok[:6], self.name_tok[6:]
+        payloads = self._stream(
+            'buffer', 'buffer_last', 'compact_delta',
+            [f'Cliente {head}', f'{rest} pediu.'], extra={'event_id': 1},
+        )
+        deltas = [p['delta'] for p in payloads]
+        self.assertEqual(''.join(deltas), f'Cliente {NAME} pediu.')
+        self.assertFalse([d for d in deltas if '#' in d])
