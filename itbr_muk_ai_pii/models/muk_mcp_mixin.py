@@ -32,3 +32,17 @@ class MCPMixin(models.AbstractModel):
         if listable is None:
             listable = set(self.env.registry)
         return set(listable) - self._itbr_pii_blocked_models()
+
+    @api.model
+    def _mcp_record_domain(self, model):
+        """Hide records attached to a blocked model from attachment/message models."""
+        domain = super()._mcp_record_domain(model)
+        if model not in ('ir.attachment', 'mail.message', 'mail.activity'):
+            return domain
+        blocked = self._itbr_pii_blocked_models()
+        if not blocked:
+            return domain
+        extra = [('res_model', 'not in', sorted(blocked))]
+        if model == 'mail.message':
+            extra = [('model', 'not in', sorted(blocked))]
+        return list(domain) + extra if domain else extra

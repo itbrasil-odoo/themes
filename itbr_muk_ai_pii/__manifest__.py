@@ -6,7 +6,7 @@
     'license': 'LGPL-3',
     'author': 'IT Brasil',
     'website': 'https://github.com/itbrasil-odoo/themes',
-    'depends': ['muk_ai'],
+    'depends': ['muk_ai', 'muk_mcp_access'],
     'data': [
         'security/ir.model.access.csv',
         'data/ir_config_parameter.xml',
