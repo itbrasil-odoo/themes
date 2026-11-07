@@ -67,3 +67,32 @@ class TestTokenStore(AITestCommon):
             self.store._reveal_any(data, self.session),
             {'a': [f'v {CPF}', 3, None], 'b': {'c': CPF, 'd': 1.5}},
         )
+
+    def test_emit_survives_existing_row(self):
+        from odoo.addons.itbr_muk_ai_pii.tools.keys import make_token
+
+        token = make_token('CPF', CPF, 'test-key')
+        self.store.sudo().create({'token': token, 'kind': 'CPF', 'value': CPF})
+        self.assertEqual(self.store._emit('CPF', CPF, self.session), token)
+        row = self.store.sudo().search([('token', '=', token)])
+        self.assertEqual(len(row), 1)
+        self.assertIn(self.session, row.session_ids)
+
+    def test_reveal_without_user_uses_tree_only(self):
+        token = self.store._emit('CPF', CPF, self.session)
+        orphan = self.session.copy()
+        orphan.user_id = False
+        self.assertEqual(self.store._reveal(token, orphan), token)
+
+    def test_subagent_tree(self):
+        if 'parent_session_id' not in self.env['muk_ai.session']._fields:
+            self.skipTest('muk_ai_subagents is not installed')
+        token = self.store._emit('CPF', CPF, self.session)
+        child = self._session(self.other)
+        child.parent_session_id = self.session
+        sibling = self._session(self.other)
+        sibling.parent_session_id = self.session
+        stranger = self._session(new_test_user(self.env, login='pii_user_c', groups='base.group_user'))
+        self.assertEqual(self.store._reveal(token, child), CPF)
+        self.assertEqual(self.store._reveal(token, sibling), CPF)
+        self.assertEqual(self.store._reveal(token, stranger), token)

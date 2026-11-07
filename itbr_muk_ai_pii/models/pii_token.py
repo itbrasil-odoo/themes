@@ -37,16 +37,18 @@ class PiiToken(models.Model):
         if not session or not self._enabled():
             return value
         token = make_token(kind, value, pii_key())
-        record = self.sudo().search([('token', '=', token)], limit=1)
-        if record:
-            record.session_ids = [(4, session.id)]
-        else:
-            self.sudo().create({
-                'token': token,
-                'kind': kind,
-                'value': value,
-                'session_ids': [(4, session.id)],
-            })
+        # Idempotent insert: two sessions emitting the same new value at once
+        # must not trip over the unique constraint.
+        self.env.flush_all()
+        self.env.cr.execute(
+            'INSERT INTO itbr_muk_ai_pii_token (token, kind, value) '
+            'VALUES (%s, %s, %s) ON CONFLICT (token) DO NOTHING',
+            (token, kind, value),
+        )
+        self.env.invalidate_all()
+        self.sudo().search([('token', '=', token)], limit=1).session_ids = [
+            (4, session.id)
+        ]
         return token
 
     @api.model
@@ -75,12 +77,10 @@ class PiiToken(models.Model):
         found = {m.group(0) for m in TOKEN_RE.finditer(text)}
         if not found:
             return text
-        records = self.sudo().search([
-            ('token', 'in', list(found)),
-            '|',
-            ('session_ids.user_id', '=', session.sudo().user_id.id),
-            ('session_ids', 'in', self._tree_session_ids(session)),
-        ])
+        domain = [('session_ids', 'in', self._tree_session_ids(session))]
+        if user := session.sudo().user_id:
+            domain = ['|', ('session_ids.user_id', '=', user.id)] + domain
+        records = self.sudo().search([('token', 'in', list(found))] + domain)
         values = {r.token: r.value for r in records}
         return TOKEN_RE.sub(lambda m: values.get(m.group(0), m.group(0)), text)
 
