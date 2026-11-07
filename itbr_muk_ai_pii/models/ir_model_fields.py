@@ -1,4 +1,5 @@
 from odoo import api, fields, models, tools
+from odoo.exceptions import AccessError
 
 EXPOSURE = [
     ('allow', 'Allowed'),
@@ -7,39 +8,46 @@ EXPOSURE = [
 ]
 
 BLOCK_NAMES = frozenset({
-    'password', 'token', 'acc_number', 'iban', 'wage', 'salary',
+    'password', 'acc_number', 'iban', 'wage', 'salary',
     'ssnid', 'passport_id', 'identification_id', 'permit_no', 'visa_no',
 })
-BLOCK_SUFFIXES = ('_token',)
-BLOCK_PREFIXES = ('bank_', 'private_')
+BLOCK_FIRST_PARTS = frozenset({'bank', 'private'})
 
 TOKENIZE_NAMES = frozenset({
     'vat', 'cnpj_cpf', 'birthday', 'contact_name', 'partner_name',
     'invoice_partner_display_name',
 })
 TOKENIZE_SUFFIXES = ('_partner_name',)
-TOKENIZE_PREFIXES = ('cpf', 'cnpj', 'email', 'phone', 'mobile', 'street', 'zip', 'birth')
+# any name part starting with one of these (cpf -> cpf, cpf_cnpj, ...)
+TOKENIZE_PART_PREFIXES = ('cpf', 'cnpj', 'email', 'phone', 'mobile', 'street', 'zip', 'birth')
+# any name part equal to one of these (pt-BR synonyms)
+TOKENIZE_PARTS = frozenset({'telefone', 'celular', 'cep', 'nascimento', 'endereco', 'rua'})
 
 
 def classify_field(model, name, ttype):
-    """Return 'allow', 'tokenize' or 'block' for one field (first match wins)."""
+    """Return 'allow', 'tokenize' or 'block' for one field (first match wins).
+
+    Keywords are matched against the parts of the name (split on '_', after
+    dropping the x_ / x_studio_ prefix of custom fields), so x_responsavel_cpf
+    is caught as well as cpf_responsavel.
+    """
     name = (name or '').lower()
-    # custom fields carry an x_ (or x_studio_) prefix that hides the real name
     for prefix in ('x_studio_', 'x_'):
         if name.startswith(prefix):
             name = name[len(prefix):]
             break
+    parts = name.split('_')
     if (
         name in BLOCK_NAMES
-        or name.endswith(BLOCK_SUFFIXES)
-        or name.startswith(BLOCK_PREFIXES)
+        or parts[-1].endswith('token')
+        or parts[0] in BLOCK_FIRST_PARTS
         or (model == 'hr.employee' and ttype == 'binary')
     ):
         return 'block'
     if (
         name in TOKENIZE_NAMES
         or name.endswith(TOKENIZE_SUFFIXES)
-        or name.startswith(TOKENIZE_PREFIXES)
+        or any(part.startswith(TOKENIZE_PART_PREFIXES) or part in TOKENIZE_PARTS for part in parts)
         or (model == 'res.users' and name == 'login')
     ):
         return 'tokenize'
@@ -84,10 +92,14 @@ class IrModelFields(models.Model):
         """Field name -> 'allow' | 'tokenize' | 'block' for one model."""
         self.flush_model(['model', 'name', 'ai_exposure'])
         self.env.cr.execute(
-            'SELECT name, ai_exposure FROM ir_model_fields WHERE model = %s',
+            'SELECT name, ai_exposure, ttype FROM ir_model_fields WHERE model = %s',
             [model_name],
         )
-        return {name: exposure or 'allow' for name, exposure in self.env.cr.fetchall()}
+        # fail closed: a row without a stored value is classified on the spot
+        return {
+            name: exposure or classify_field(model_name, name, ttype)
+            for name, exposure, ttype in self.env.cr.fetchall()
+        }
 
     def write(self, vals):
         # ir.model.fields.write refuses to touch base fields; the exposure
@@ -98,6 +110,8 @@ class IrModelFields(models.Model):
         if rest:
             result = super().write(rest)
         if own:
+            if not (self.env.su or self.env.user._is_system()):
+                raise AccessError(self.env._('Only administrators can change the AI exposure of a field.'))
             result = models.BaseModel.write(self, own)
             self.env.registry.clear_cache()
         return result

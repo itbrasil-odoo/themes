@@ -1,5 +1,8 @@
-from odoo.tests import tagged
+from odoo.exceptions import AccessError
+from odoo.tests import new_test_user, tagged
 from odoo.tests.common import TransactionCase
+
+from odoo.addons.itbr_muk_ai_pii.models.ir_model_fields import classify_field
 
 
 @tagged('post_install', '-at_install')
@@ -59,4 +62,42 @@ class TestExposure(TransactionCase):
         self.assertEqual(found, field)
 
     def test_map(self):
+        self.assertEqual(self.env['ir.model.fields']._ai_exposure_map('res.partner')['vat'], 'tokenize')
+
+    def test_name_parts_tokenized(self):
+        for name in (
+            'x_responsavel_cpf', 'x_cliente_email', 'x_telefone',
+            'x_studio_celular_contato', 'x_data_nascimento', 'email_cc',
+            'phone_sanitized', 'street_number', 'x_cep', 'x_endereco', 'x_rua',
+        ):
+            self.assertEqual(classify_field('res.partner', name, 'char'), 'tokenize', name)
+
+    def test_business_fields_allowed(self):
+        for name in ('name', 'ref', 'amount_total', 'partner_id', 'website', 'city', 'state_id'):
+            self.assertEqual(classify_field('sale.order', name, 'char'), 'allow', name)
+
+    def test_token_last_part_blocked(self):
+        for name in ('access_token', 'accesstoken', 'authtoken', 'token', 'x_api_token'):
+            self.assertEqual(classify_field('res.partner', name, 'char'), 'block', name)
+        self.assertEqual(classify_field('res.partner', 'token_count', 'integer'), 'allow')
+
+    def test_exact_rules_stay_exact(self):
+        self.assertEqual(classify_field('res.partner', 'vat', 'char'), 'tokenize')
+        self.assertEqual(classify_field('res.partner', 'x_vat_note', 'char'), 'allow')
+        self.assertEqual(classify_field('res.partner', 'login', 'char'), 'allow')
+
+    def test_override_requires_system(self):
+        field = self.env['ir.model.fields']._get('res.partner', 'vat')
+        manager = new_test_user(self.env, login='pii_erp_manager', groups='base.group_erp_manager')
+        with self.assertRaises(AccessError):
+            field.with_user(manager).ai_exposure_override = 'allow'
+        admin = new_test_user(self.env, login='pii_system', groups='base.group_system')
+        field.with_user(admin).ai_exposure_override = 'allow'
+        self.assertEqual(field.ai_exposure, 'allow')
+
+    def test_map_null_falls_back_to_classifier(self):
+        field = self.env['ir.model.fields']._get('res.partner', 'vat')
+        field.flush_recordset()
+        self.env.cr.execute('UPDATE ir_model_fields SET ai_exposure = NULL WHERE id = %s', [field.id])
+        self.env.registry.clear_cache()
         self.assertEqual(self.env['ir.model.fields']._ai_exposure_map('res.partner')['vat'], 'tokenize')
