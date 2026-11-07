@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+	<record id="view_res_config_settings_form" model="ir.ui.view">
+		<field name="name">res.config.settings.form.itbr_muk_ai_pii</field>
+		<field name="model">res.config.settings</field>
+		<field name="inherit_id" ref="muk_ai.view_res_config_settings_form"/>
+		<field name="arch" type="xml">
+			<xpath expr="//block[@name='muk_ai_settings_defaults']" position="after">
+				<block title="Personal data" name="itbr_muk_ai_pii_settings">
+					<setting
+						id="itbr_muk_ai_pii_enabled"
+						help="Personal data in the assistant's replies is swapped for tokens before it reaches the AI provider."
+					>
+						<field name="itbr_muk_ai_pii_enabled"/>
+						<div
+							class="text-warning mt-2"
+							invisible="itbr_muk_ai_pii_key_set"
+						>
+							No key set on the server (ODOO_AI_PII_KEY or ai_pii_key in the Odoo configuration file): personal data is not protected.
+						</div>
+						<field name="itbr_muk_ai_pii_key_set" invisible="1"/>
+					</setting>
+					<setting
+						id="itbr_muk_ai_pii_blocked_models"
+						string="Blocked models"
+						help="Models the assistant cannot read at all, comma-separated."
+					>
+						<field name="itbr_muk_ai_pii_blocked_models"/>
+					</setting>
+					<setting
+						id="itbr_muk_ai_pii_email_domains"
+						string="Company e-mail domains"
+						help="E-mail addresses on these domains are kept as they are, comma-separated."
+					>
+						<field name="itbr_muk_ai_pii_email_domains"/>
+					</setting>
+				</block>
+			</xpath>
+		</field>
+	</record>
+
+</odoo>

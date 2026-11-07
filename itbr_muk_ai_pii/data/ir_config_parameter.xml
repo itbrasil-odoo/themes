@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo noupdate="1">
+
+	<record id="param_enabled" model="ir.config_parameter">
+		<field name="key">itbr_muk_ai_pii.enabled</field>
+		<field name="value">True</field>
+	</record>
+
+	<record id="param_blocked_models" model="ir.config_parameter">
+		<field name="key">itbr_muk_ai_pii.blocked_models</field>
+		<field name="value">hr.contract,hr.version,hr.payslip,hr.payslip.line,hr.payslip.run,hr.salary.attachment,res.partner.bank,payment.token</field>
+	</record>
+
+</odoo>
