@@ -67,9 +67,8 @@ def _phone_value(raw, bare):
         return None
     if bare:
         number = value[4:]
-        halves = _digits(raw)[-8:]
-        if YEAR_RE.fullmatch(halves[:4]) and YEAR_RE.fullmatch(halves[4:]):
-            return None  # year range such as "12 2024-2025"
+        if len(number) == 8 and YEAR_RE.fullmatch(number[:4]) and YEAR_RE.fullmatch(number[4:]):
+            return None  # landline shaped like a year range, such as "12 2024-2025"
         if not (len(number) == 9 and number[0] == '9' or len(number) == 8 and number[0] in '2345'):
             return None
     return value

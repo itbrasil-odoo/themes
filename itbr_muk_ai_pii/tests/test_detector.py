@@ -66,6 +66,12 @@ class TestDetector(BaseCase):
         # Valid DDD and landline shape, but both halves are years: rejected on purpose.
         self.assertEqual(tokenize_text('11 2024-2025', emit), '11 2024-2025')
 
+    def test_mobile_looking_like_years_is_phone(self):
+        self.assertEqual(tokenize_text('11 92024-2025', emit), 'PHONE<5511920242025>')
+        self.assertEqual(tokenize_text('55 11 92024 2025', emit), 'PHONE<5511920242025>')
+        self.assertEqual(tokenize_text('11 92000 1999', emit), 'PHONE<5511920001999>')
+        self.assertEqual(tokenize_text('11 91999-2000', emit), 'PHONE<5511919992000>')
+
     def test_separator_only_number_shape(self):
         self.assertEqual(tokenize_text('11 3456-7890', emit), 'PHONE<551134567890>')
         self.assertEqual(tokenize_text('11 1234-5678', emit), '11 1234-5678')
