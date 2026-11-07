@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+	<record id="view_muk_ai_provider_form" model="ir.ui.view">
+		<field name="name">muk_ai.provider.form.itbr_muk_ai_guard</field>
+		<field name="model">muk_ai.provider</field>
+		<field name="inherit_id" ref="muk_ai.view_muk_ai_provider_form"/>
+		<field name="arch" type="xml">
+			<field name="api_key" position="attributes">
+				<attribute name="invisible">api_key_external</attribute>
+			</field>
+			<field name="api_key" position="after">
+				<field name="api_key_external" invisible="not api_key_external"/>
+			</field>
+		</field>
+	</record>
+
+</odoo>

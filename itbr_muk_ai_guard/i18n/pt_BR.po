@@ -6,8 +6,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Odoo Server 19.0+e\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-06 23:46+0000\n"
-"PO-Revision-Date: 2026-11-06 23:46+0000\n"
+"POT-Creation-Date: 2026-11-07 00:19+0000\n"
+"PO-Revision-Date: 2026-11-07 00:19+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: pt_BR\n"
@@ -20,6 +20,11 @@ msgstr ""
 #: model:ir.model,name:itbr_muk_ai_guard.model_muk_ai_approval
 msgid "AI Approval Audit"
 msgstr "Auditoria de aprovações de IA"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model,name:itbr_muk_ai_guard.model_muk_ai_provider
+msgid "AI Provider"
+msgstr "Provedor de IA"
 
 #. module: itbr_muk_ai_guard
 #: model:ir.model,name:itbr_muk_ai_guard.model_muk_ai_session
@@ -43,6 +48,7 @@ msgstr "Configurações"
 
 #. module: itbr_muk_ai_guard
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_approval__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_provider__display_name
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_session__display_name
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__display_name
 msgid "Display Name"
@@ -64,10 +70,16 @@ msgstr "Proteções"
 
 #. module: itbr_muk_ai_guard
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_approval__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_provider__id
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_session__id
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__id
 msgid "ID"
-msgstr "ID"
+msgstr ""
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_provider__api_key_external
+msgid "Key set on the server"
+msgstr "Chave definida no servidor"
 
 #. module: itbr_muk_ai_guard
 #: model_terms:ir.ui.view,arch_db:itbr_muk_ai_guard.view_res_config_settings_form
@@ -80,12 +92,23 @@ msgstr ""
 #. odoo-python
 #: code:addons/itbr_muk_ai_guard/models/muk_ai_session.py:0
 msgid "Only administrators can turn off AI approvals."
-msgstr "Só administradores podem desligar as aprovações da IA."
+msgstr ""
 
 #. module: itbr_muk_ai_guard
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__itbr_muk_ai_guard_admin_only_approval_off
 msgid "Only admins turn approvals off"
 msgstr "Só admins desligam aprovações"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model.fields,help:itbr_muk_ai_guard.field_muk_ai_provider__api_key_external
+msgid ""
+"The API key comes from the ODOO_AI_KEY_<PROVIDER> environment variable or "
+"the ai_key_<provider> option of the Odoo configuration file, not from the "
+"database."
+msgstr ""
+"A chave de API vem da variável de ambiente ODOO_AI_KEY_<PROVEDOR> ou da "
+"opção ai_key_<provedor> do arquivo de configuração do Odoo, e não do banco "
+"de dados."
 
 #. module: itbr_muk_ai_guard
 #: model_terms:ir.ui.view,arch_db:itbr_muk_ai_guard.view_res_config_settings_form
@@ -100,4 +123,4 @@ msgstr ""
 #. odoo-python
 #: code:addons/itbr_muk_ai_guard/models/muk_ai_session.py:0
 msgid "Tool %s is disabled in this database."
-msgstr "A ferramenta %s está desativada nesta base."
+msgstr ""
