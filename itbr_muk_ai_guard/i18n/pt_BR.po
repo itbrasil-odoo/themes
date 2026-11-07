@@ -1,0 +1,103 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* itbr_muk_ai_guard
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 19.0+e\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-06 23:46+0000\n"
+"PO-Revision-Date: 2026-11-06 23:46+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model,name:itbr_muk_ai_guard.model_muk_ai_approval
+msgid "AI Approval Audit"
+msgstr "Auditoria de aprovações de IA"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model,name:itbr_muk_ai_guard.model_muk_ai_session
+msgid "AI Session"
+msgstr "Sessão de IA"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__itbr_muk_ai_guard_approve_all_writes
+msgid "Approve every write"
+msgstr "Aprovar toda gravação"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__itbr_muk_ai_guard_block_web
+msgid "Block web access"
+msgstr "Bloquear acesso à web"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model,name:itbr_muk_ai_guard.model_res_config_settings
+msgid "Config Settings"
+msgstr "Configurações"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_approval__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_session__display_name
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__display_name
+msgid "Display Name"
+msgstr "Nome exibido"
+
+#. module: itbr_muk_ai_guard
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_guard.view_res_config_settings_form
+msgid ""
+"Every create, update, delete or action the assistant runs waits for the "
+"user's approval, on any model."
+msgstr ""
+"Toda criação, alteração, exclusão ou ação que o assistente executa espera a "
+"aprovação do usuário, em qualquer modelo."
+
+#. module: itbr_muk_ai_guard
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_guard.view_res_config_settings_form
+msgid "Guard"
+msgstr "Proteções"
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_approval__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_session__id
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__id
+msgid "ID"
+msgstr "ID"
+
+#. module: itbr_muk_ai_guard
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_guard.view_res_config_settings_form
+msgid "Only administrators can turn approvals off, in a chat or on an agent."
+msgstr ""
+"Só administradores podem desligar as aprovações, numa conversa ou num "
+"agente."
+
+#. module: itbr_muk_ai_guard
+#. odoo-python
+#: code:addons/itbr_muk_ai_guard/models/muk_ai_session.py:0
+msgid "Only administrators can turn off AI approvals."
+msgstr "Só administradores podem desligar as aprovações da IA."
+
+#. module: itbr_muk_ai_guard
+#: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__itbr_muk_ai_guard_admin_only_approval_off
+msgid "Only admins turn approvals off"
+msgstr "Só admins desligam aprovações"
+
+#. module: itbr_muk_ai_guard
+#: model_terms:ir.ui.view,arch_db:itbr_muk_ai_guard.view_res_config_settings_form
+msgid ""
+"The assistant cannot search or open web pages, so text planted in a record "
+"cannot make it send data to an outside address."
+msgstr ""
+"O assistente não pesquisa nem abre páginas da web, para que um texto "
+"plantado num registro não o faça enviar dados para um endereço externo."
+
+#. module: itbr_muk_ai_guard
+#. odoo-python
+#: code:addons/itbr_muk_ai_guard/models/muk_ai_session.py:0
+msgid "Tool %s is disabled in this database."
+msgstr "A ferramenta %s está desativada nesta base."

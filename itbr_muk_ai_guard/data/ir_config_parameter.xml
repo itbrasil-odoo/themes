@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo noupdate="1">
+
+	<record id="param_approve_all_writes" model="ir.config_parameter">
+		<field name="key">itbr_muk_ai_guard.approve_all_writes</field>
+		<field name="value">True</field>
+	</record>
+
+	<record id="param_admin_only_approval_off" model="ir.config_parameter">
+		<field name="key">itbr_muk_ai_guard.admin_only_approval_off</field>
+		<field name="value">True</field>
+	</record>
+
+	<record id="param_block_web" model="ir.config_parameter">
+		<field name="key">itbr_muk_ai_guard.block_web</field>
+		<field name="value">True</field>
+	</record>
+
+</odoo>
