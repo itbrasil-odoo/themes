@@ -34,7 +34,7 @@ class TestRecords(AITestCommon):
         self.env['ir.config_parameter'].sudo().set_param('itbr_muk_ai_pii.enabled', 'True')
         self.user = new_test_user(
             self.env, login='pii_rec_user', name='Vera Vendedora',
-            groups='base.group_user,base.group_allow_export',
+            groups='base.group_user,base.group_allow_export,base.group_partner_manager',
         )
         self.session = self.env['muk_ai.session'].with_user(self.user).create({'name': 'PII'})
         self.tool_env = self.session._tool_dispatch_env()
@@ -369,3 +369,64 @@ class TestRecords(AITestCommon):
             {'model': 'res.partner', 'domain': [['id', '=', self.person.id]], 'groupby': ['user_id']},
         )
         self.assertEqual(groups[0]['user_id'], [portal.id, tok('NAME', 'Paulo Portal')])
+
+    # -- fix round 2 -----------------------------------------------------
+    def _legacy_group(self, env=None):
+        return self._call(
+            'call_method',
+            {'model': 'res.partner', 'method': 'read_group',
+             'kwargs': {'domain': [['id', '=', self.person.id]],
+                        'fields': ['cpfs:array_agg(vat)', 'n:array_agg(name)'],
+                        'groupby': ['is_company']}},
+            env,
+        )
+
+    def test_read_group_alias_session(self):
+        [group] = self._legacy_group()
+        self.assertEqual(group['cpfs'], [tok('CPF', CPF)])
+        self.assertEqual(group['n'], [tok('NAME', 'Maria Pessoa')])
+        self.assertNotIn('123.456', json.dumps(group))
+
+    def test_read_group_alias_external(self):
+        [group] = self._legacy_group(env=self.env)
+        self.assertNotIn('cpfs', group)
+        self.assertNotIn('123.456', json.dumps(group))
+
+    def test_read_group_unknown_key_dropped(self):
+        from ..tools.records import Masker
+        masker = Masker(self.tool_env, self.session.sudo())
+        [group] = masker.groups('res.partner', [], [], [{'weird': 'Maria Pessoa', '__count': 1}])
+        self.assertNotIn('weird', group)
+        self.assertEqual(group['__count'], 1)
+
+    def test_follower_display_name_tokenized(self):
+        self.person.message_subscribe(partner_ids=self.person.ids)
+        followers = self.env['mail.followers'].search(
+            [('res_model', '=', 'res.partner'), ('res_id', '=', self.person.id),
+             ('partner_id', '=', self.person.id)]
+        )
+        [row] = self._read(followers, ['display_name'])
+        self.assertEqual(row['display_name'], tok('NAME', 'Maria Pessoa'))
+
+    def test_call_method_web_read_group(self):
+        result = self._call(
+            'call_method',
+            {'model': 'res.partner', 'method': 'web_read_group',
+             'kwargs': {'domain': [['id', '=', self.child.id]], 'groupby': ['parent_id'],
+                        'auto_unfold': True,
+                        'unfold_read_specification': {'name': {}, 'parent_name': {}}}},
+        )
+        self.assertEqual(result['groups'][0]['parent_id'], [self.person.id, tok('NAME', 'Maria Pessoa')])
+        self.assertNotIn('Maria Pessoa', json.dumps(result))
+        self.assertNotIn('Filho Contato', json.dumps(result))
+
+    def test_call_method_web_save(self):
+        rows = self._call(
+            'call_method',
+            {'model': 'res.partner', 'method': 'web_save', 'ids': self.person.ids,
+             'kwargs': {'vals': {'city': 'Sorocaba'},
+                        'specification': {'name': {}, 'vat': {}, 'city': {}}}},
+        )
+        self.assertEqual(rows[0]['name'], tok('NAME', 'Maria Pessoa'))
+        self.assertEqual(rows[0]['vat'], tok('CPF', CPF))
+        self.assertEqual(rows[0]['city'], 'Sorocaba')

@@ -20,6 +20,10 @@ USERS = 'res.users'
 PEOPLE_MODELS = (PARTNER, USERS)
 # char field naming the record of a (model, res_id) pair -> the fields of that pair
 RECORD_NAME_FIELDS = {'record_name': ('model', 'res_id'), 'res_name': ('res_model', 'res_id')}
+# computed (not related) name fields that copy the name of a partner link
+COMPUTED_NAME_LINKS = {('mail.followers', 'display_name'): ['partner_id']}
+# group keys that are not values of a field; anything else unknown is dropped
+GROUP_META_KEYS = frozenset({'__extra_domain', '__domain', '__count', '__fold', '__context', '__offset'})
 TRACKING = 'mail.tracking.value'
 TRACKING_VALUES = {
     'old_value_char': 'old_value_integer', 'new_value_char': 'new_value_integer',
@@ -236,6 +240,9 @@ class Masker:
                 target = self.env[sub.comodel_name]
             if target is not None and target._name in PEOPLE_MODELS and path[-1] in PARTNER_NAME_FIELDS:
                 related[name] = path[:-1]
+        for (link_model, name), path in COMPUTED_NAME_LINKS.items():
+            if link_model == model_name and name in keys:
+                related[name] = path
         records_named = {
             name: pair for name, pair in RECORD_NAME_FIELDS.items()
             if name in keys and all(f in model._fields for f in pair)
@@ -387,11 +394,19 @@ class Masker:
             return 'name', model, field
         return 'allow', model, field
 
-    def groups(self, model_name, groupby, aggregates, groups):
+    def groups(self, model_name, groupby, aggregates, groups, unfold_model=None):
+        """Mask grouped results; ``aggregates`` is a list of specs or a ``{key: field}`` map.
+
+        Keys that are neither a groupby, an aggregate nor a known meta key are
+        dropped unless numeric (fail closed). ``__records`` / ``__groups`` of
+        ``web_read_group`` are masked too.
+        """
+        if not isinstance(aggregates, dict):
+            aggregates = {spec: spec.split(':')[0] for spec in aggregates}
         specs = {spec: self.spec(model_name, spec) for spec in groupby}
         aggs = {
-            spec: self.spec(model_name, spec.split(':')[0])
-            for spec in aggregates if spec != '__count'
+            key: self.spec(model_name, fname)
+            for key, fname in aggregates.items() if key != '__count'
         }
         if self.tokens:
             for spec, (_level, _model, field) in specs.items():
@@ -422,6 +437,8 @@ class Masker:
                         group[spec] = self.emit('NAME', value)
                         group.pop('__extra_domain', None)
                         group.pop('__domain', None)
+                elif field is not None and field.relational and isinstance(value, dict):
+                    group[spec] = self._nested(field, value)
                 elif field is not None and field.relational and field.comodel_name in PEOPLE_MODELS:
                     group[spec] = self.mask_label(value, field.comodel_name)
             for spec, (level, _model, field) in aggs.items():
@@ -430,12 +447,25 @@ class Masker:
                 value = group[spec]
                 if isinstance(value, numbers.Number) and not isinstance(value, bool):
                     continue  # counts and sums carry no personal value
-                if level == 'block' or (level == 'tokenize' and not self.session):
+                if field is None or level == 'block' or (level == 'tokenize' and not self.session):
                     group.pop(spec)
                 elif level == 'tokenize':
                     group[spec] = self.emit_field(field.name, value)
                 elif level == 'name':
                     group[spec] = self.emit('NAME', value)
+            if '__records' in group:
+                group['__records'] = self.rows(unfold_model or model_name, group['__records'] or [])
+            if isinstance(group.get('__groups'), dict):
+                sub = group['__groups']
+                sub['groups'] = self.groups(
+                    model_name, groupby[1:], aggregates, sub.get('groups') or [], unfold_model
+                )
+            for key in list(group):
+                if key in specs or key in aggs or key in GROUP_META_KEYS or key in ('__records', '__groups'):
+                    continue
+                value = group[key]
+                if not (isinstance(value, numbers.Number) and not isinstance(value, bool)):
+                    group.pop(key)  # unknown key with a value: fail closed
         return groups
 
     def _mask_domain(self, domain, name):

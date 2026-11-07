@@ -1,6 +1,8 @@
 from odoo import _, api, models
 from odoo.exceptions import AccessError
 
+from odoo.orm.models import regex_field_agg
+
 from odoo.addons.muk_mcp.tools.parser import coerce_json_value
 
 from ..tools.records import Masker
@@ -10,7 +12,7 @@ SESSION_KEY = 'itbr_pii_session_id'
 # other results are left to the detector at the provider boundary
 READ_METHODS = frozenset({
     'read', 'search_read', 'web_read', 'web_search_read', 'name_search',
-    'read_group', 'formatted_read_group',
+    'read_group', 'formatted_read_group', 'web_read_group', 'web_save',
 })
 
 
@@ -130,21 +132,33 @@ class MCPMixin(models.AbstractModel):
             return masker.pairs(model, result or [])
         if method == 'web_search_read' and isinstance(result, dict):
             return {**result, 'records': masker.rows(model, result.get('records') or [])}
-        if method in ('read_group', 'formatted_read_group'):
-            positional = coerce_json_value(args) or []
-            keyword = dict(coerce_json_value(kwargs) or {})
-            if method == 'read_group':
-                specs = keyword.get('fields', positional[1] if len(positional) > 1 else [])
-                groupby = keyword.get('groupby', positional[2] if len(positional) > 2 else [])
-            else:
-                groupby = keyword.get('groupby', positional[1] if len(positional) > 1 else [])
-                specs = keyword.get('aggregates', positional[2] if len(positional) > 2 else [])
+        positional = coerce_json_value(args) or []
+        keyword = dict(coerce_json_value(kwargs) or {})
+
+        def arg(name, index, default):
+            return keyword.get(name, positional[index] if len(positional) > index else default)
+
+        if method == 'read_group':
+            groupby = arg('groupby', 2, [])
             groupby = [groupby] if isinstance(groupby, str) else list(groupby or [])
-            keys = list(specs or [])
-            if method == 'read_group':  # legacy results are keyed by the field name
-                keys = [str(spec).split(':')[0] for spec in keys]
-            aggregates = [key for key in keys if key not in groupby]
+            # 'alias:agg(field)' -> key alias, field; 'field:agg' / 'field' -> key field
+            aggregates = {}
+            for spec in arg('fields', 1, []) or []:
+                match = regex_field_agg.match(str(spec))
+                if not match:
+                    continue
+                name, _func, fname = match.groups()
+                if name not in groupby:
+                    aggregates[name] = fname or name
             return masker.groups(model, groupby, aggregates, list(result or []))
+        if method == 'formatted_read_group':
+            groupby = list(arg('groupby', 1, []) or [])
+            aggregates = list(arg('aggregates', 2, []) or [])
+            return masker.groups(model, groupby, aggregates, list(result or []))
+        if method == 'web_read_group' and isinstance(result, dict):
+            groupby = list(arg('groupby', 1, []) or [])
+            aggregates = list(arg('aggregates', 2, []) or [])
+            return {**result, 'groups': masker.groups(model, groupby, aggregates, result.get('groups') or [])}
         if isinstance(result, list) and all(isinstance(row, dict) for row in result):
             return masker.rows(model, result)
         return result
