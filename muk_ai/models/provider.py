@@ -16,6 +16,10 @@ from odoo.addons.muk_ai.tools import (
 
 SNAPSHOT_SUFFIX = re.compile(r'-\d{8}$')
 
+# Shapes of vendor API keys, masked in any text that leaves the provider
+# (errors, logs) even when it is not this provider's own key.
+SECRET_PATTERNS = re.compile(r'(sk-ant-|sk-or-|sk-|AIza)[A-Za-z0-9_\-]{8,}')
+
 
 class AIProvider(models.Model):
     """Configured LLM provider account exposing a streaming request client."""
@@ -201,6 +205,20 @@ class AIProvider(models.Model):
     # ----------------------------------------------------------
     # Helper
     # ----------------------------------------------------------
+
+    def _resolve_api_key(self) -> str:
+        """Return the API key requests authenticate with, empty when unset.
+
+        Extension modules read it from outside the database instead.
+        """
+        self.ensure_one()
+        return self.sudo().api_key or ''
+
+    def _mask_secrets(self, text: str) -> str:
+        """Return ``text`` with this provider's key and any key-shaped token masked."""
+        if key := self._resolve_api_key():
+            text = text.replace(key, '***')
+        return SECRET_PATTERNS.sub(lambda match: f'{match.group(1)}***', text)
 
     @api.model
     def _get_default(self) -> AIProvider:

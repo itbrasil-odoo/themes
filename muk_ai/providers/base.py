@@ -71,7 +71,7 @@ class ProviderBase:
     @property
     def _api_key(self) -> str:
         """Return the configured API key, empty when unset."""
-        return self.provider.sudo().api_key or ''
+        return self.provider.sudo()._resolve_api_key()
 
     @property
     def authenticated(self) -> bool:
@@ -559,6 +559,6 @@ class ProviderBase:
             self.env._(
                 'AI provider %(provider)s request failed: %(error)s',
                 provider=self.name,
-                error=str(error)[:500],
+                error=self.provider.sudo()._mask_secrets(str(error))[:500],
             )
         )
