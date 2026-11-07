@@ -105,3 +105,20 @@ def tokenize_text(text, emit, email_domains=frozenset()):
         return raw if phone is None else emit('PHONE', phone)
 
     return DETECT_RE.sub(replace, text)
+
+
+def document_kind(value):
+    """Return ``CPF`` or ``CNPJ`` by the digit count of ``value``, else ``DOC``."""
+    return {11: 'CPF', 14: 'CNPJ'}.get(len(_digits(str(value))), 'DOC')
+
+
+def normalize(kind, value):
+    """Normalize ``value`` the way :func:`tokenize_text` does, so both give one token."""
+    text = str(value).strip()
+    if kind in ('CPF', 'CNPJ'):
+        return _digits(text) or text
+    if kind == 'EMAIL':
+        return text.lower()
+    if kind == 'PHONE':
+        return _normalize_phone(text) or text
+    return ' '.join(text.split())
