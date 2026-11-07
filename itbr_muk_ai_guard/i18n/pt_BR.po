@@ -74,7 +74,7 @@ msgstr "Proteções"
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_session__id
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__id
 msgid "ID"
-msgstr ""
+msgstr "ID"
 
 #. module: itbr_muk_ai_guard
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_muk_ai_provider__api_key_external
@@ -92,7 +92,7 @@ msgstr ""
 #. odoo-python
 #: code:addons/itbr_muk_ai_guard/models/muk_ai_session.py:0
 msgid "Only administrators can turn off AI approvals."
-msgstr ""
+msgstr "Só administradores podem desligar as aprovações da IA."
 
 #. module: itbr_muk_ai_guard
 #: model:ir.model.fields,field_description:itbr_muk_ai_guard.field_res_config_settings__itbr_muk_ai_guard_admin_only_approval_off
@@ -106,8 +106,8 @@ msgid ""
 "the ai_key_<provider> option of the Odoo configuration file, not from the "
 "database."
 msgstr ""
-"A chave de API vem da variável de ambiente ODOO_AI_KEY_<PROVEDOR> ou da "
-"opção ai_key_<provedor> do arquivo de configuração do Odoo, e não do banco "
+"A chave de API vem da variável de ambiente ODOO_AI_KEY_<PROVIDER> ou da "
+"opção ai_key_<provider> do arquivo de configuração do Odoo, e não do banco "
 "de dados."
 
 #. module: itbr_muk_ai_guard
@@ -123,4 +123,4 @@ msgstr ""
 #. odoo-python
 #: code:addons/itbr_muk_ai_guard/models/muk_ai_session.py:0
 msgid "Tool %s is disabled in this database."
-msgstr ""
+msgstr "A ferramenta %s está desativada nesta base."
