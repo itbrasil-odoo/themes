@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from unittest.mock import patch
 
 from odoo.tests import new_test_user
@@ -12,6 +13,7 @@ from ..tools.keys import make_token
 KEY = 'test-key'
 CPF = '12345678909'
 EMAIL = 'joao@cliente.com.br'
+NAME = 'Maria José Pessoa'
 
 
 def tok(kind, value):
@@ -41,6 +43,7 @@ class TestReturnPath(AITestCommon):
         store = self.env['itbr.muk_ai.pii.token']
         self.cpf_tok = store._emit('CPF', CPF, self.session.sudo())
         self.email_tok = store._emit('EMAIL', EMAIL, self.session.sudo())
+        self.name_tok = store._emit('NAME', NAME, self.session.sudo())
         self.assertEqual(self.cpf_tok, tok('CPF', CPF))
 
     # ------------------------------------------------------------------
@@ -115,12 +118,11 @@ class TestReturnPath(AITestCommon):
         head, rest = self.cpf_tok[:8], self.cpf_tok[8:]
         with patch.object(Session, '_publish_event', capture), \
                 patch.object(Session, '_commit_safe', lambda s: None):
-            self.session._coalesce_and_emit(
-                state, 'text', 'last_text_flush', f'O CPF é {head}', 'text_delta',
-            )
-            self.session._coalesce_and_emit(
-                state, 'text', 'last_text_flush', f'{rest}.', 'text_delta',
-            )
+            for delta in (f'O CPF é {head}', f'{rest}.'):
+                state['last_text_flush'] = 0.0  # force each delta out at once
+                self.session._coalesce_and_emit(
+                    state, 'text', 'last_text_flush', delta, 'text_delta',
+                )
             self.session._flush_stream_buffer(state)
         deltas = [p['delta'] for t, p in published if t == 'text_delta']
         self.assertEqual(''.join(deltas), f'O CPF é {CPF}.')
@@ -223,3 +225,120 @@ class TestReturnPath(AITestCommon):
         with self._mock_responses([self._text(f'O CPF é {self.cpf_tok}.')]):
             self.session.start('qual o CPF?')
         self.assertIn(f'O CPF é {CPF}.', self._texts())
+
+    # -- fix round 1 ----------------------------------------------------
+    def _stream(self, content_key, last_key, event_type, deltas, extra=None):
+        """Feed ``deltas`` one by one, flushing each at once; return the published deltas."""
+        published = []
+        Session = type(self.session)
+
+        def capture(session_self, kind, payload):
+            published.append((kind, payload))
+
+        state = {}
+        with patch.object(Session, '_publish_event', capture), \
+                patch.object(Session, '_commit_safe', lambda s: None):
+            for delta in deltas:
+                state[last_key] = 0.0
+                self.session._coalesce_and_emit(
+                    state, content_key, last_key, delta, event_type, extra=extra,
+                )
+            self.session._flush_stream_buffer(state)
+        return [p for t, p in published if t == event_type]
+
+    def test_stream_reasoning_revealed(self):
+        head, rest = self.cpf_tok[:5], self.cpf_tok[5:]
+        payloads = self._stream(
+            'reasoning', 'last_reasoning_flush', 'reasoning_delta',
+            [f'Busco o CPF {head}', f'{rest} no cadastro.'],
+        )
+        deltas = [p['delta'] for p in payloads]
+        self.assertEqual(''.join(deltas), f'Busco o CPF {CPF} no cadastro.')
+        self.assertFalse([d for d in deltas if '#' in d])
+
+    def test_stream_tool_args_revealed(self):
+        args = json.dumps({'domain': [['vat', '=', self.cpf_tok]]})
+        cut = args.index('#') + 3
+        payloads = self._stream(
+            'tool_args_c1', 'tool_args_c1_last', 'tool_call_args_delta',
+            [args[:cut], args[cut:]], extra={'call_id': 'c1'},
+        )
+        self.assertTrue(all(p.get('call_id') == 'c1' for p in payloads))
+        deltas = [p['delta'] for p in payloads]
+        self.assertEqual(''.join(deltas), args.replace(self.cpf_tok, CPF))
+        self.assertFalse([d for d in deltas if '#' in d])
+
+    def test_tool_output_echo_masked(self):
+        """``open_view`` echoes its revealed domain: the provider gets the token back."""
+        args = {
+            'model': 'res.partner',
+            'domain': json.dumps([['name', '=', self.name_tok]]),
+            'name': f'Contatos de {self.name_tok}',
+        }
+        with self._mock_responses([self._call('open_view', args), self._text('ok')]) as mock:
+            self.session.start('mostre')
+        sent = json.dumps(mock.call_args_list[1].kwargs['inputs'], ensure_ascii=False)
+        self.assertIn(self.name_tok, sent)
+        self.assertNotIn('Maria', sent)
+        pinned = json.dumps(self.session.view_context or {}, ensure_ascii=False)
+        self.assertIn(self.name_tok, pinned)
+        self.assertNotIn('Maria', pinned)
+        self.assertNotIn('Maria', json.dumps(self.session.conversation, ensure_ascii=False))
+
+    def test_tool_error_echo_masked(self):
+        received = []
+
+        def boom(self_arg, name, arguments, env, enforce_scope=None):
+            received.append(arguments)
+            raise ValueError(f"Invalid domain {arguments['domain']!r} for {NAME}")
+
+        with patch.object(
+            type(self.env['muk_mcp.tool']), '_call', autospec=True, side_effect=boom,
+        ):
+            output, ok = self.session._dispatch_tool_call(
+                'search_read',
+                {'model': 'res.partner', 'domain': [['name', '=', self.name_tok]]},
+                'c-err',
+            )
+        self.assertFalse(ok)
+        self.assertEqual(received[0]['domain'], [['name', '=', NAME]])
+        self.assertIn(self.name_tok, output['error'])
+        self.assertNotIn('Maria', output['error'])
+
+    def test_unknown_tool_args_keep_tokens(self):
+        call_patch, received = self._capture_calls()
+        with call_patch:
+            self.session._dispatch_tool_call(
+                'remote_crm_lookup', {'query': f'cliente {self.cpf_tok}'}, 'c-remote',
+            )
+        [(name, sent)] = received
+        self.assertEqual(sent['query'], f'cliente {self.cpf_tok}')
+
+    def test_compaction_summary_shown_real_stored_token(self):
+        summary = f'O cliente {self.name_tok} tem CPF {self.cpf_tok}.'
+        shown = f'O cliente {NAME} tem CPF {CPF}.'
+        sent = []
+
+        def bus(session_self, channel, message, **kwargs):
+            sent.append((channel, message))
+
+        event = self.session._begin_compact_progress()
+        with patch.object(type(self.session), '_bus_send', bus):
+            self.session._patch_compact_progress(
+                event, {'state': 'done', 'summary': summary, 'streamed_text': summary},
+            )
+        [update] = [m for c, m in sent if m.get('type') == 'compact_update']
+        self.assertEqual(update['payload']['patch']['summary'], shown)
+        self.assertEqual(update['payload']['patch']['streamed_text'], shown)
+        # the stored summary keeps the tokens: it goes back to the provider
+        self.assertEqual(event.payload['summary'], summary)
+        self.assertEqual(self.session._find_prior_compact_summary(), summary)
+        [window] = [
+            e for e in self.session.fetch_events()['events'] if e['kind'] == 'compact_progress'
+        ]
+        self.assertEqual(window['summary'], shown)
+        [snap] = [
+            e for e in self.session.get_snapshot()['events'] if e['kind'] == 'compact_progress'
+        ]
+        self.assertEqual(snap['streamed_text'], shown)
+        self.assertFalse(re.search(r'(CPF|NAME)#', json.dumps(snap)))

@@ -1,10 +1,11 @@
+import contextvars
 import json
 import re
 
 from odoo import models
 
-from odoo.addons.muk_ai.tools import CAPABILITY_TOOLS
 from odoo.addons.muk_ai.tools.context import with_ui_ctx
+from odoo.addons.muk_mcp.core.registry import MIXIN
 from odoo.addons.muk_mcp.core.tool import get_tool_index
 
 from ..tools.detector import tokenize_text
@@ -14,16 +15,19 @@ from ..tools.records import PARTNER, USERS, Masker
 PARAM_EMAIL_DOMAINS = 'itbr_muk_ai_pii.email_domains'
 TEXT_BLOCKS = frozenset({'input_text', 'output_text'})
 
-# Tools whose arguments leave Odoo (an image or search provider, a web page,
-# another AI model) or reach another tool that reveals on its own dispatch:
-# their arguments keep the tokens (R26).
-OUTBOUND_TOOLS = CAPABILITY_TOOLS | {
-    'web_fetch',
-    'decide',
-    'tool_load',
-    'delegate',
-    'subagent_message',
-}
+# Where the tools whose arguments are revealed are declared (R27): the Odoo
+# data tools of muk_mcp and muk_ai's own screen tools. Every other tool
+# (generate_image, web_search, web_fetch, another AI model, a remote or
+# database-defined tool, ``tool_load`` whose inline call is dispatched on its
+# own) keeps the tokens.
+ODOO_TOOL_ORIGINS = (
+    'odoo.addons.muk_mcp.mcp.',
+    'odoo.addons.muk_ai.mcp.window',
+    'odoo.addons.muk_ai.mcp.search',
+    'odoo.addons.muk_ai.mcp.notification',
+    'odoo.addons.muk_ai.mcp.agent',
+)
+MCP_TOOL_ATTR = '__mcp_tool__'
 
 TOKEN_KINDS = ('CPF', 'CNPJ', 'EMAIL', 'PHONE', 'NAME', 'ADDR', 'DATE', 'DOC')
 # A trailing fragment that may grow into a token with the next delta: a token
@@ -36,6 +40,48 @@ TOKEN_TAIL_RE = re.compile(
     % ('|'.join(TOKEN_KINDS), '|'.join(_KIND_PREFIXES))
 )
 TAIL_KEY = 'itbr_pii_tail'
+STREAM_KEYS = ('text', 'reasoning')
+TOOL_ARGS_PREFIX = 'tool_args_'
+# Events shown as they come from the provider, outside ``_append_event``.
+REVEALED_PUBLISHES = frozenset({'compact_update', 'view_context'})
+
+# ``{real value: token}`` of the tool call being dispatched, so its echoes are
+# masked again, in the output and in the view context it pins.
+_DISPATCH_MASK = contextvars.ContextVar('itbr_pii_dispatch_mask', default=None)
+
+
+def _tail_key(content_key):
+    return TAIL_KEY if content_key == 'text' else f'{TAIL_KEY}:{content_key}'
+
+
+def _streams_revealed(content_key):
+    return content_key in STREAM_KEYS or (
+        content_key.startswith(TOOL_ARGS_PREFIX) and not content_key.endswith('_last')
+    )
+
+
+def _mask_patterns(mask):
+    """Return ``(pattern, token)`` pairs, longest value first.
+
+    A value is matched as a whole word, raw and as JSON escapes it.
+    """
+    pairs = []
+    for value in sorted(mask, key=len, reverse=True):
+        for form in {value, json.dumps(value)[1:-1]}:
+            pairs.append((re.compile(r'(?<!\w)%s(?!\w)' % re.escape(form)), mask[value]))
+    return pairs
+
+
+def _mask_any(data, pairs):
+    if isinstance(data, str):
+        for pattern, token in pairs:
+            data = pattern.sub(token, data)
+        return data
+    if isinstance(data, dict):
+        return {k: _mask_any(v, pairs) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [_mask_any(v, pairs) for v in data]
+    return data
 
 
 class MukAiSession(models.Model):
@@ -158,22 +204,83 @@ class MukAiSession(models.Model):
             return data
         return self.env['itbr.muk_ai.pii.token']._reveal_any(data, self.sudo())
 
+    def _itbr_pii_tool_origin(self, name):
+        """Return the Python module that declares chat tool ``name``, or ``None``."""
+        entry = get_tool_index(self.env, registry='odoo').get(name)
+        if not entry or entry.get('kind') != 'method':
+            return None
+        for klass in type(self.env[MIXIN]).mro():
+            func = vars(klass).get(entry['method'])
+            if func is not None and getattr(func, MCP_TOOL_ATTR, None):
+                return klass.__module__
+        return None
+
     def _itbr_pii_reveals_args(self, name, arguments):
-        """Whether the arguments of tool ``name`` run inside Odoo (R26)."""
-        if name in OUTBOUND_TOOLS or not self.id:
+        """Whether the arguments of tool ``name`` run inside Odoo (R26, R27)."""
+        if not self.id or not TOKEN_RE.search(json.dumps(arguments, default=str)):
             return False
-        if not TOKEN_RE.search(json.dumps(arguments, default=str)):
-            return False
-        return name in get_tool_index(self.env, registry='odoo')
+        origin = self._itbr_pii_tool_origin(name) or ''
+        return origin.startswith(ODOO_TOOL_ORIGINS)
+
+    def _itbr_pii_mask_of(self, arguments):
+        """Return ``{value: token}`` for the tokens of ``arguments`` this chat reveals."""
+        tokens = sorted({m.group(0) for m in TOKEN_RE.finditer(json.dumps(arguments, default=str))})
+        # NUL never occurs in a stored value (PostgreSQL text refuses it)
+        values = self._itbr_pii_reveal('\x00'.join(tokens)).split('\x00')
+        return {
+            value: token
+            for token, value in zip(tokens, values, strict=True)
+            if value != token and value
+        }
 
     def _append_event(self, entry):
         """Events are what users see: store and broadcast them with real values."""
         return super()._append_event(self._itbr_pii_reveal(entry))
 
+    def _publish_event(self, event_type, payload):
+        """Show the payloads published outside ``_append_event`` with real values.
+
+        Compaction progress and the pinned view context are stored with tokens.
+        """
+        if event_type in REVEALED_PUBLISHES:
+            payload = self._itbr_pii_reveal(payload)
+        return super()._publish_event(event_type, payload)
+
+    def fetch_events(self, limit=100, before_sequence=None):
+        """Show stored events with real values, compaction summaries included."""
+        window = super().fetch_events(limit=limit, before_sequence=before_sequence)
+        if window.get('events'):
+            window = {**window, 'events': self._itbr_pii_reveal(window['events'])}
+        return window
+
     def _dispatch_tool_call(self, name, arguments, call_id):
-        if self._itbr_pii_reveals_args(name, arguments):
-            arguments = self._itbr_pii_reveal(arguments)
-        return super()._dispatch_tool_call(name, arguments, call_id)
+        """Run Odoo tools with real values and hand their echoes back as tokens.
+
+        A tool may echo its arguments (``open_view`` returns its domain, an
+        error quotes a value): the values revealed for the call are masked
+        again in the output, which goes to the provider.
+        """
+        if not self._itbr_pii_reveals_args(name, arguments):
+            return super()._dispatch_tool_call(name, arguments, call_id)
+        mask = self._itbr_pii_mask_of(arguments)
+        if not mask:
+            return super()._dispatch_tool_call(name, arguments, call_id)
+        pairs = _mask_patterns(mask)
+        reset = _DISPATCH_MASK.set(pairs)
+        try:
+            output, ok = super()._dispatch_tool_call(
+                name, self._itbr_pii_reveal(arguments), call_id
+            )
+        finally:
+            _DISPATCH_MASK.reset(reset)
+        return _mask_any(output, pairs), ok
+
+    def _view_context_from_action(self, tool_name, action):
+        """The view context a tool pins goes to the provider: keep its tokens."""
+        payload = super()._view_context_from_action(tool_name, action)
+        if payload and (pairs := _DISPATCH_MASK.get()):
+            payload = _mask_any(payload, pairs)
+        return payload
 
     def _enter_waiting_approval(self, call, tool_calls, outputs, index, has_terminating, gate):
         """Preview and later dispatch the paused call with real values.
@@ -208,11 +315,16 @@ class MukAiSession(models.Model):
     def _coalesce_and_emit(
         self, buffer_state, content_key, last_key, delta, event_type, extra=None
     ):
-        """Stream text with real values, holding back a token cut by a delta."""
-        if content_key == 'text':
-            text = buffer_state.pop(TAIL_KEY, '') + (delta or '')
+        """Stream text, reasoning and tool arguments with real values.
+
+        A trailing fragment that may be the start of a token is held back
+        until the next delta completes it, or the stream is flushed.
+        """
+        if _streams_revealed(content_key):
+            tail_key = _tail_key(content_key)
+            text = buffer_state.pop(tail_key, '') + (delta or '')
             if match := TOKEN_TAIL_RE.search(text):
-                buffer_state[TAIL_KEY] = match.group(0)
+                buffer_state[tail_key] = match.group(0)
                 text = text[: match.start()]
             delta = self._itbr_pii_reveal(text)
             if not delta:
@@ -221,8 +333,20 @@ class MukAiSession(models.Model):
             buffer_state, content_key, last_key, delta, event_type, extra=extra
         )
 
+    def _itbr_pii_release_tail(self, buffer_state, content_key):
+        if tail := buffer_state.pop(_tail_key(content_key), ''):
+            buffer_state[content_key] = buffer_state.get(content_key, '') + self._itbr_pii_reveal(
+                tail
+            )
+
     def _flush_text_buffer(self, buffer_state):
         """Release the held-back tail before the buffer goes out."""
-        if tail := buffer_state.pop(TAIL_KEY, ''):
-            buffer_state['text'] = buffer_state.get('text', '') + self._itbr_pii_reveal(tail)
+        self._itbr_pii_release_tail(buffer_state, 'text')
         return super()._flush_text_buffer(buffer_state)
+
+    def _flush_stream_buffer(self, buffer_state):
+        """Release every held-back tail before the buffers go out."""
+        prefix = f'{TAIL_KEY}:'
+        for key in [k for k in buffer_state if isinstance(k, str) and k.startswith(prefix)]:
+            self._itbr_pii_release_tail(buffer_state, key[len(prefix):])
+        return super()._flush_stream_buffer(buffer_state)
