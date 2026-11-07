@@ -5,8 +5,14 @@ from odoo.orm.models import regex_field_agg
 
 from odoo.addons.muk_mcp.tools.parser import coerce_json_value
 
+from odoo.addons.muk_mcp.tools.uri import parse_uri
+
 from ..tools.records import Masker
 
+# Chat events and the token store hold real values, so no tool may reach them
+ALWAYS_BLOCKED_MODELS = frozenset({
+    'muk_ai.session', 'muk_ai.session.event', 'itbr.muk_ai.pii.token',
+})
 SESSION_KEY = 'itbr_pii_session_id'
 # read-like methods reachable by call_method whose results are masked here;
 # other results are left to the detector at the provider boundary
@@ -31,6 +37,7 @@ class MCPMixin(models.AbstractModel):
             .get_param('itbr_muk_ai_pii.blocked_models', '')
         )
         names = {name.strip() for name in (value or '').split(',') if name.strip()}
+        names |= ALWAYS_BLOCKED_MODELS
         return frozenset(name for name in names if name in self.env)
 
     @api.model
@@ -40,6 +47,21 @@ class MCPMixin(models.AbstractModel):
                 _('Model %(model)r is not accessible via MCP.', model=model)
             )
         return super()._resolve_model(model)
+
+    @api.model
+    def _resolve_resource_target(self, uri):
+        """Refuse a record binary field the exposure rules block (e.g. employee photos)."""
+        kind, params = parse_uri(uri) or (None, {})
+        if kind == 'record_field':
+            model, field = params['model'], params['field']
+            if model in self._itbr_pii_blocked_models() or (
+                model in self.env
+                and self.env['ir.model.fields']._ai_exposure_map(model).get(field) == 'block'
+            ):
+                raise AccessError(
+                    _('Model %(model)r is not accessible via MCP.', model=model)
+                )
+        return super()._resolve_resource_target(uri)
 
     @api.model
     def _mcp_listable_model_names(self):

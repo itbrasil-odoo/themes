@@ -41,7 +41,13 @@ class TestBlockedModels(TransactionCase):
     def test_unknown_names_ignored(self):
         self._set_blocked('no.such.model, res.partner.bank')
         blocked = self.env['muk_mcp.mixin']._itbr_pii_blocked_models()
-        self.assertEqual(blocked, frozenset({'res.partner.bank'}))
+        self.assertEqual(
+            blocked,
+            frozenset({
+                'res.partner.bank', 'muk_ai.session', 'muk_ai.session.event',
+                'itbr.muk_ai.pii.token',
+            }),
+        )
 
 
 @tagged('post_install', '-at_install')
