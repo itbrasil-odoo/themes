@@ -1,4 +1,10 @@
+import re
+
 from odoo import api, models
+
+from ..tools.detector import tokenize_text
+from ..tools.keys import TOKEN_RE
+from ..tools.records import Masker
 
 # The token store holds real values, so no tool may reach it
 ALWAYS_BLOCKED_MODELS = frozenset({'itbr.ai.pii.token'})
@@ -40,3 +46,54 @@ class ItbrAiPii(models.AbstractModel):
     @api.model
     def _tokens_available(self):
         return self.env['itbr.ai.pii.token']._enabled()
+
+    @api.model
+    def _masker(self, external=False):
+        """Return a :class:`Masker` of tool results for the current user."""
+        return Masker(self.env, external=external)
+
+    @api.model
+    def _mask_text(self, text):
+        """Mask personal data of free ``text`` with the current user's tokens.
+
+        Values the user already holds a token for (names, addresses, documents,
+        dates) are swapped back to that token, whole words only and longest
+        first; then CPF, CNPJ, e-mail and phone are detected. Same input, same
+        output. Without tokens the text is returned as it is.
+        """
+        if not text or not isinstance(text, str) or not self._tokens_available():
+            return text
+        store = self.env['itbr.ai.pii.token']
+        known = {}
+        for value, token in store._known_in(text):
+            known.setdefault(value, token)
+        if known:
+            # one pass: existing tokens are kept, a value is never matched
+            # inside a token, nor inside a longer value already replaced
+            pattern = re.compile(
+                '(?P<token>' + TOKEN_RE.pattern + ')|(?<!\\w)(?:'
+                + '|'.join(re.escape(value) for value in known)
+                + ')(?!\\w)'
+            )
+            used = set()
+
+            def remask(match):
+                if match.group('token'):
+                    return match.group(0)
+                used.add(known[match.group(0)])
+                return known[match.group(0)]
+
+            text = pattern.sub(remask, text)
+            store._touch(sorted(used))
+        return tokenize_text(text, store._emit, self._email_domains())
+
+    @api.model
+    def _mask_any(self, data):
+        """Apply :meth:`_mask_text` to every string of nested dicts and lists."""
+        if isinstance(data, str):
+            return self._mask_text(data)
+        if isinstance(data, dict):
+            return {key: self._mask_any(value) for key, value in data.items()}
+        if isinstance(data, list):
+            return [self._mask_any(value) for value in data]
+        return data
