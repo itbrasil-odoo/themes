@@ -7,7 +7,6 @@ from odoo.exceptions import AccessError
 from odoo.tests import TransactionCase, tagged
 
 
-
 @tagged('post_install', '-at_install')
 class TestTokenStore(TransactionCase):
     @classmethod
@@ -90,3 +89,35 @@ class TestTokenStore(TransactionCase):
     def test_token_table_not_readable_by_user(self):
         with self.assertRaises(AccessError):
             self.Token.with_user(self.user_a).search([])
+
+    def test_emit_ignores_empty_values(self):
+        before = self.Token.sudo().search_count([])
+        self.assertEqual(self.Token._emit('NAME', ''), '')
+        self.assertEqual(self.Token._emit('NAME', '  '), '  ')
+        self.assertEqual(self.Token.sudo().search_count([]), before)
+        self.Token.sudo().create({'token': 'NAME#cccccccccccc', 'kind': 'NAME', 'value': ''})
+        self.Token.sudo().create({'token': 'NAME#dddddddddddd', 'kind': 'NAME', 'value': 'Ana'})
+        self.env.cr.execute(
+            "INSERT INTO itbr_ai_pii_token_user_rel (token_id, user_id) "
+            "SELECT id, %s FROM itbr_ai_pii_token WHERE token LIKE 'NAME#%%'",
+            (self.env.uid,),
+        )
+        found = self.Token._known_in('anything Ana')
+        self.assertTrue(found)
+        self.assertNotIn('', [value for value, _token in found])
+
+    def test_reemit_links_second_user(self):
+        token_a = self.Token.with_user(self.user_a)._emit('CPF', '52998224725')
+        token_b = self.Token.with_user(self.user_b)._emit('CPF', '52998224725')
+        self.assertEqual(token_a, token_b)
+        self.assertEqual(self.Token.sudo().search_count([('token', '=', token_a)]), 1)
+        for user in (self.user_a, self.user_b):
+            self.assertEqual(self.Token.with_user(user)._reveal(token_a), '52998224725')
+
+    def test_touch_renews_last_emitted(self):
+        token = self.Token._emit('CPF', '52998224725')
+        record = self.Token.sudo().search([('token', '=', token)])
+        record.last_emitted = fields.Datetime.now() - timedelta(days=10)
+        self.Token._touch([token])
+        record.invalidate_recordset()
+        self.assertGreater(record.last_emitted, fields.Datetime.now() - timedelta(days=1))

@@ -14,7 +14,7 @@ class PiiToken(models.Model):
     _description = 'AI personal data token'
     _log_access = False
 
-    token = fields.Char(required=True, index=True)
+    token = fields.Char(required=True)
     kind = fields.Char(required=True)
     value = fields.Char(required=True)
     user_ids = fields.Many2many(
@@ -39,29 +39,26 @@ class PiiToken(models.Model):
 
         Returns ``normalized`` unchanged when tokens are off.
         """
-        if not self._enabled():
+        if not normalized or not normalized.strip() or not self._enabled():
             return normalized
         token = make_token(kind, normalized, pii_key())
         cr = self.env.cr
         self.env.flush_all()
-        # Idempotent insert: two requests emitting the same new value at once
-        # must not trip over the unique constraint.
+        # Idempotent insert. DO UPDATE (not DO NOTHING) so the row id is always
+        # returned; a conflicting row invisible to this snapshot raises a
+        # serialization error, which Odoo retries.
         cr.execute(
             'INSERT INTO itbr_ai_pii_token (token, kind, value, last_emitted) '
             'VALUES (%s, %s, %s, now() at time zone \'utc\') '
-            'ON CONFLICT (token) DO NOTHING',
+            'ON CONFLICT (token) DO UPDATE SET last_emitted = EXCLUDED.last_emitted '
+            'RETURNING id',
             (token, kind, normalized),
         )
+        token_id = cr.fetchone()[0]
         cr.execute(
             'INSERT INTO itbr_ai_pii_token_user_rel (token_id, user_id) '
-            'SELECT id, %s FROM itbr_ai_pii_token WHERE token = %s '
-            'ON CONFLICT DO NOTHING',
-            (self.env.uid, token),
-        )
-        cr.execute(
-            'UPDATE itbr_ai_pii_token SET last_emitted = now() at time zone \'utc\' '
-            'WHERE token = %s',
-            (token,),
+            'VALUES (%s, %s) ON CONFLICT DO NOTHING',
+            (token_id, self.env.uid),
         )
         self.env.invalidate_all()
         return token
@@ -100,7 +97,7 @@ class PiiToken(models.Model):
             'SELECT t.value, t.token FROM itbr_ai_pii_token t '
             'JOIN itbr_ai_pii_token_user_rel r ON r.token_id = t.id '
             'WHERE r.user_id = %(uid)s AND t.kind IN %(kinds)s '
-            'AND strpos(%(text)s, t.value) > 0 '
+            'AND length(t.value) > 0 AND strpos(%(text)s, t.value) > 0 '
             'ORDER BY length(t.value) DESC, t.id',
             {'uid': self.env.uid, 'kinds': tuple(kinds), 'text': text},
         )
