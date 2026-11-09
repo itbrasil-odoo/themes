@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo noupdate="1">
+
+	<record id="cron_gc_expired_tokens" model="ir.cron">
+		<field name="name">AI PII: delete expired tokens</field>
+		<field name="model_id" ref="model_itbr_ai_pii_token"/>
+		<field name="state">code</field>
+		<field name="code">model._gc_expired()</field>
+		<field name="interval_number">1</field>
+		<field name="interval_type">days</field>
+	</record>
+
+</odoo>
