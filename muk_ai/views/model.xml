@@ -88,7 +88,12 @@
 							<field name="provider_id"/>
 							<field name="technical_name"/>
 							<field name="modality"/>
-							<field name="context_window" invisible="modality != 'chat'"/>
+							<field
+                                name="context_window"
+                                invisible="modality != 'chat'"
+                                readonly="not api_synced"
+                            />
+							<field name="api_synced" invisible="not api_synced"/>
 							<field name="reasoning_efforts" invisible="1"/>
 							<field
                                 name="reasoning_effort_default"
@@ -99,13 +104,22 @@
 						</group>
 						<group string="Pricing">
 							<field name="rate_unit"/>
-							<field name="input_rate"/>
+							<field name="input_rate" readonly="not api_synced"/>
 							<field
                                 name="output_rate"
                                 invisible="modality not in ('chat', 'image')"
+                                readonly="not api_synced"
                             />
-							<field name="cache_read_rate" invisible="modality != 'chat'"/>
-							<field name="cache_write_rate" invisible="modality != 'chat'"/>
+							<field
+                                name="cache_read_rate"
+                                invisible="modality != 'chat'"
+                                readonly="not api_synced"
+                            />
+							<field
+                                name="cache_write_rate"
+                                invisible="modality != 'chat'"
+                                readonly="not api_synced"
+                            />
 							<field name="currency"/>
 						</group>
 					</group>

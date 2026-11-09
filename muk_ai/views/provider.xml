@@ -46,6 +46,13 @@
                         string="Test Connection"
                         class="btn-primary"
                     />
+					<button
+                        name="action_sync_models"
+                        type="object"
+                        string="Sync Models"
+                        invisible="not supports_model_listing"
+                    />
+					<field name="supports_model_listing" invisible="1"/>
 				</header>
 				<sheet>
 					<widget

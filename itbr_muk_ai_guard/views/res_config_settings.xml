@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+	<record id="view_res_config_settings_form" model="ir.ui.view">
+		<field name="name">res.config.settings.form.itbr_muk_ai_guard</field>
+		<field name="model">res.config.settings</field>
+		<field name="inherit_id" ref="muk_ai.view_res_config_settings_form"/>
+		<field name="arch" type="xml">
+			<xpath expr="//block[@name='muk_ai_settings_defaults']" position="after">
+				<block title="Guard" name="itbr_muk_ai_guard_settings">
+					<setting
+						id="itbr_muk_ai_guard_approve_all_writes"
+						help="Every create, update, delete or action the assistant runs waits for the user's approval, on any model."
+					>
+						<field name="itbr_muk_ai_guard_approve_all_writes"/>
+					</setting>
+					<setting
+						id="itbr_muk_ai_guard_admin_only_approval_off"
+						help="Only administrators can turn approvals off, in a chat or on an agent."
+					>
+						<field name="itbr_muk_ai_guard_admin_only_approval_off"/>
+					</setting>
+					<setting
+						id="itbr_muk_ai_guard_block_web"
+						help="The assistant cannot search or open web pages, so text planted in a record cannot make it send data to an outside address."
+					>
+						<field name="itbr_muk_ai_guard_block_web"/>
+					</setting>
+				</block>
+			</xpath>
+		</field>
+	</record>
+
+</odoo>

@@ -1,0 +1,24 @@
+<section class="oe_container">
+	<div class="oe_row oe_spaced">
+		<h2 class="oe_slogan">ServIAm Guard</h2>
+		<h3 class="oe_slogan">Approval on every AI write, admin-only switch, no web access, API keys off the database</h3>
+	</div>
+</section>
+
+<section class="oe_container">
+	<div class="oe_row oe_spaced">
+		<div class="text-justify" style="max-width: 84%; margin: 16px 8%;">
+			<p>
+				Guard rails for the MuK AI assistant (shown as <strong>ServIAm</strong> in Portuguese).
+				Each one is a switch under <em>Settings &gt; MuK AI &gt; Guard</em>, all on after installation.
+			</p>
+			<ul>
+				<li><strong>Approve every write</strong>: every create, update, delete or action the assistant runs waits for the user's approval, on any model.</li>
+				<li><strong>Only admins turn approvals off</strong>, in a chat or on an agent.</li>
+				<li><strong>Block web access</strong>: no web search or page fetch, so text planted in a record cannot make the assistant send data to an outside address.</li>
+				<li><strong>API keys off the database</strong>: read from <code>ODOO_AI_KEY_&lt;PROVIDER&gt;</code> or the <code>ai_key_&lt;provider&gt;</code> option of the Odoo configuration file, so backups and restored copies never carry them.</li>
+			</ul>
+			<p>Odoo access rights and record rules still apply: the assistant acts as the user who is chatting.</p>
+		</div>
+	</div>
+</section>

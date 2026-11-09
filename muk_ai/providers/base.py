@@ -33,6 +33,7 @@ class ProviderBase:
     supports_vision = True
     supports_web_search = False
     supports_code_interpreter = False
+    supports_model_listing = False
 
     reasoning_error_tokens = ()
 
@@ -70,7 +71,7 @@ class ProviderBase:
     @property
     def _api_key(self) -> str:
         """Return the configured API key, empty when unset."""
-        return self.provider.sudo().api_key or ''
+        return self.provider.sudo()._resolve_api_key()
 
     @property
     def authenticated(self) -> bool:
@@ -154,6 +155,22 @@ class ProviderBase:
     ) -> dict:
         """Run an inference request against the provider and return its result."""
         raise NotImplementedError
+
+    def list_models(self) -> list[dict]:
+        """Return the chat models the vendor serves to this account.
+
+        Each entry carries ``technical_name``, ``name``, ``context_window`` and
+        ``reasoning_efforts``. Adapters that implement it set
+        :attr:`supports_model_listing`.
+
+        :raise UserError: when the provider does not list its models.
+        """
+        raise UserError(
+            self.env._(
+                '%(provider)s does not offer a model listing to sync from.',
+                provider=self.label,
+            )
+        )
 
     def test_connection(self) -> bool:
         """Issue a minimal request to verify the provider responds.
@@ -244,6 +261,25 @@ class ProviderBase:
                 headers=self.headers(),
                 json=body,
                 timeout=timeout or self.request_timeout,
+            )
+            response.raise_for_status()
+        except requests.HTTPError as error:
+            self._raise(getattr(error.response, 'text', '') or str(error))
+        except requests.RequestException as error:
+            self._raise(error)
+        return response.json()
+
+    def _get_json(self, path: str, params: dict | None = None) -> dict:
+        """GET a path with query ``params`` and return the decoded response.
+
+        :raise UserError: on HTTP or transport errors.
+        """
+        try:
+            response = self._http_session().get(
+                f'{self.api_url}{path}',
+                headers=self.headers(),
+                params=params or {},
+                timeout=self.request_timeout,
             )
             response.raise_for_status()
         except requests.HTTPError as error:
@@ -523,6 +559,6 @@ class ProviderBase:
             self.env._(
                 'AI provider %(provider)s request failed: %(error)s',
                 provider=self.name,
-                error=str(error)[:500],
+                error=self.provider.sudo()._mask_secrets(str(error))[:500],
             )
         )

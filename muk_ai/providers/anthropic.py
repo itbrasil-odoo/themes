@@ -9,7 +9,9 @@ ANTHROPIC_VERSION = '2023-06-01'
 WEB_SEARCH_TOOL_TYPE = 'web_search_20250305'
 CODE_EXECUTION_TOOL_TYPE = 'code_execution_20250825'
 
-THINKING_MODEL_TOKENS = ('fable-5', 'opus-5', 'opus-4', 'sonnet-5', 'sonnet-4')
+THINKING_MODEL_TOKENS = ('fable-5', 'opus-5', 'opus-4', 'sonnet-5', 'sonnet-4', 'haiku-5')
+MODEL_LIST_PAGE_SIZE = 1000
+MODEL_LIST_EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
 LEGACY_THINKING_MODEL_TOKENS = (
     'opus-4-5',
     'sonnet-4-5',
@@ -31,11 +33,12 @@ class AnthropicProvider(ProviderBase):
 
     name = 'anthropic'
     label = 'Anthropic'
-    default_model = 'claude-sonnet-5'
+    default_model = 'claude-sonnet-5-5'
     default_url = 'https://api.anthropic.com/v1'
 
     supports_web_search = True
     supports_code_interpreter = True
+    supports_model_listing = True
 
     reasoning_error_tokens = ('thinking', 'effort', 'output_config')
 
@@ -126,6 +129,34 @@ class AnthropicProvider(ProviderBase):
     # ----------------------------------------------------------
     # Thinking
     # ----------------------------------------------------------
+
+    def list_models(self) -> list[dict]:
+        """Return every model of ``GET /models``, following its pagination."""
+        entries, after = [], None
+        while True:
+            params = {'limit': MODEL_LIST_PAGE_SIZE}
+            if after:
+                params['after_id'] = after
+            page = self._get_json('/models', params)
+            entries += [self._model_entry(item) for item in page.get('data') or []]
+            if not page.get('has_more') or not (after := page.get('last_id')):
+                return entries
+
+    @staticmethod
+    def _model_entry(item: dict) -> dict:
+        """Map one Models API object to a catalogue entry."""
+        effort = (item.get('capabilities') or {}).get('effort') or {}
+        efforts = [
+            level
+            for level in MODEL_LIST_EFFORTS
+            if effort.get('supported') and (effort.get(level) or {}).get('supported')
+        ]
+        return {
+            'technical_name': item['id'],
+            'name': item.get('display_name') or item['id'],
+            'context_window': item.get('max_input_tokens') or 0,
+            'reasoning_efforts': efforts,
+        }
 
     def _invoke(self, body: dict, on_delta: Callable | None) -> dict:
         """Dispatch the request to the streaming or non-streaming path."""
