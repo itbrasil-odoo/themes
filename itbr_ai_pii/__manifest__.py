@@ -11,6 +11,9 @@
         'security/ir.access.csv',
         'data/ir_config_parameter.xml',
         'data/ir_cron.xml',
+        'views/ir_model_fields.xml',
+        'views/res_config_settings.xml',
+        'data/ir_model_fields.xml',
     ],
     'installable': True,
 }

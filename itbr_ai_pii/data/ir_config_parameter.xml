@@ -11,4 +11,9 @@
 		<field name="value">30</field>
 	</record>
 
+	<record id="param_blocked_models" model="ir.config_parameter">
+		<field name="key">itbr_ai_pii.blocked_models</field>
+		<field name="value">hr.contract,hr.version,hr.payslip,hr.payslip.line,hr.payslip.run,hr.salary.attachment,res.partner.bank,payment.token</field>
+	</record>
+
 </odoo>
