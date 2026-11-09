@@ -36,15 +36,22 @@ class TestTokenStore(TransactionCase):
 
     def test_reveal_only_to_emitting_user(self):
         token = self.Token.with_user(self.user_a)._emit('CPF', '52998224725')
+        self.assertRegex(token, r'^CPF#[0-9a-f]{12}$')
         self.assertIn('52998224725', self.Token.with_user(self.user_a)._reveal(f'x {token}'))
         self.assertEqual(self.Token.with_user(self.user_b)._reveal(f'x {token}'), f'x {token}')
 
     def test_reveal_leaves_unknown_tokens(self):
+        known = self.Token._emit('CPF', '52998224725')
+        self.assertRegex(known, r'^CPF#[0-9a-f]{12}$')
         text = 'x CPF#000000000000 y'
         self.assertEqual(self.Token._reveal(text), text)
+        self.assertEqual(
+            self.Token._reveal(f'{known} CPF#000000000000'), '52998224725 CPF#000000000000'
+        )
 
     def test_reveal_any_walks_dicts_and_lists(self):
         token = self.Token._emit('CPF', '52998224725')
+        self.assertRegex(token, r'^CPF#[0-9a-f]{12}$')
         data = {'a': [f'{token}', {'b': token}], 'n': 3}
         self.assertEqual(
             self.Token._reveal_any(data),
