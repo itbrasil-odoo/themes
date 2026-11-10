@@ -90,6 +90,13 @@ class TestTokenStore(TransactionCase):
         with self.assertRaises(AccessError):
             self.Token.with_user(self.user_a).search([])
 
+    def test_token_table_not_readable_by_admin(self):
+        admin = self.env['res.users'].create(
+            {'name': 'S', 'login': 'pii_s', 'group_ids': [(6, 0, [self.env.ref('base.group_system').id])]}
+        )
+        with self.assertRaises(AccessError):
+            self.Token.with_user(admin).search([])
+
     def test_emit_ignores_empty_values(self):
         before = self.Token.sudo().search_count([])
         self.assertEqual(self.Token._emit('NAME', ''), '')

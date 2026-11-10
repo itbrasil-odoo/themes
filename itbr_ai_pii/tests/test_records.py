@@ -158,6 +158,42 @@ class TestRecords(TransactionCase):
         self.assertEqual(masked['a'][1], {'b': 'x'})
         self.assertEqual(masked['n'], 3)
 
+    def test_mask_any_looks_up_known_values_once(self):
+        store = self.uenv['itbr.ai.pii.token']
+        name = store._emit('NAME', 'João Silva')
+        cpf = store._emit('CPF', '52998224725')
+        data = {
+            'a': ['Fale com João Silva.', {'b': 'CPF 52998224725'}],
+            'c': 'joão silva de novo',
+            'd': 'nada aqui',
+        }
+        original = type(store)._known_in
+        with patch.object(
+            type(store), '_known_in', autospec=True, side_effect=original
+        ) as known_in:
+            masked = self.uenv['itbr.ai.pii']._mask_any(data)
+        self.assertEqual(known_in.call_count, 1)
+        self.assertEqual(masked['a'][0], f'Fale com {name}.')
+        self.assertEqual(masked['a'][1], {'b': f'CPF {cpf}'})
+        self.assertEqual(masked['c'], f'{name} de novo')
+        self.assertEqual(masked['d'], 'nada aqui')
+
+    def test_text_masker_matches_mask_text(self):
+        pii = self.uenv['itbr.ai.pii']
+        self.uenv['itbr.ai.pii.token']._emit('NAME', 'João Silva')
+        self.uenv['itbr.ai.pii.token']._emit('NAME', 'Ana')
+        texts = ['João Silva e Ana', 'Banana e Mariana', 'CPF 529.982.247-25 de Ana']
+        store = type(self.uenv['itbr.ai.pii.token'])
+        with patch.object(
+            store, '_known_in', autospec=True, side_effect=store._known_in
+        ) as known_in:
+            seen = set()
+            mask = pii._text_masker(texts, seen=seen)
+            batched = [mask(text) for text in texts]
+        self.assertEqual(known_in.call_count, 1)
+        self.assertEqual(batched, [pii._mask_text(text) for text in texts])
+        self.assertEqual(len(seen), 2)
+
     # -- ported ---------------------------------------------------------
     def test_person_partner_masked(self):
         [row] = self._read(self.person, ['name', 'display_name', 'vat', 'email', 'phone', 'city'])

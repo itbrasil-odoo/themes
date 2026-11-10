@@ -84,12 +84,26 @@ class ItbrAiPii(models.AbstractModel):
         ``itbr.ai.pii.token._touch(seen)``. Newly detected values are emitted,
         which already renews them.
         """
-        if not text or not isinstance(text, str) or not self._tokens_available():
-            return text
+        return self._text_masker([text], seen=seen)(text)
+
+    @api.model
+    def _text_masker(self, texts, seen=None):
+        """Return a function masking a text like :meth:`_mask_text`, built for
+        all of ``texts`` at once: the user's known values are looked up with a
+        single query over all of them and the swap pattern is compiled once.
+
+        Apply it to the strings of ``texts`` (a value found in another one is
+        only swapped where it appears, as a whole word).
+        """
+        if not self._tokens_available():
+            return lambda text: text
         store = self.env['itbr.ai.pii.token']
+        domains = self._email_domains()
+        probe = '\n'.join(text for text in texts if text and isinstance(text, str))
         # _known_in orders by length desc, so the alternation tries the
         # longest value first at each position
-        known = store._known_in(text)
+        known = store._known_in(probe) if probe else []
+        pattern = None
         if known:
             # one pass: existing tokens are kept and never matched inside
             pattern = re.compile(
@@ -100,35 +114,46 @@ class ItbrAiPii(models.AbstractModel):
                 re.IGNORECASE,
             )
 
-            def remask(match):
-                if match.group('token'):
-                    return match.group(0)
-                token = known[int(match.lastgroup[1:])][1]
-                if seen is not None:
-                    seen.add(token)
-                return token
+        def remask(match):
+            if match.group('token'):
+                return match.group(0)
+            token = known[int(match.lastgroup[1:])][1]
+            if seen is not None:
+                seen.add(token)
+            return token
 
-            text = pattern.sub(remask, text)
-        return tokenize_text(text, store._emit, self._email_domains())
+        def mask(text):
+            if not text or not isinstance(text, str):
+                return text
+            if pattern is not None:
+                text = pattern.sub(remask, text)
+            return tokenize_text(text, store._emit, domains)
+
+        return mask
 
     @api.model
     def _mask_any(self, data, touch=True, seen=None):
         """Apply :meth:`_mask_text` to every string of nested dicts and lists.
 
-        With ``touch`` the swapped tokens are renewed once at the end.
+        The known values are looked up once for all the strings. With
+        ``touch`` the swapped tokens are renewed once at the end.
         """
         seen = set() if seen is None else seen
-        result = self._mask_walk(data, seen)
+        texts = []
+        self._mask_walk(data, texts.append)
+        mask = self._text_masker(texts, seen=seen)
+        result = self._mask_walk(data, mask)
         if touch and seen:
             self.env['itbr.ai.pii.token']._touch(sorted(seen))
         return result
 
     @api.model
-    def _mask_walk(self, data, seen):
+    def _mask_walk(self, data, mask):
+        """Apply ``mask`` to every string of nested dicts and lists."""
         if isinstance(data, str):
-            return self._mask_text(data, seen=seen)
+            return mask(data)
         if isinstance(data, dict):
-            return {key: self._mask_walk(value, seen) for key, value in data.items()}
+            return {key: self._mask_walk(value, mask) for key, value in data.items()}
         if isinstance(data, list):
-            return [self._mask_walk(value, seen) for value in data]
+            return [self._mask_walk(value, mask) for value in data]
         return data

@@ -8,7 +8,6 @@
     'website': 'https://github.com/itbrasil-odoo/themes',
     'depends': ['base'],
     'data': [
-        'security/ir.access.csv',
         'data/ir_config_parameter.xml',
         'data/ir_cron.xml',
         'views/ir_model_fields.xml',

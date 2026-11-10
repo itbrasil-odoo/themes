@@ -1,2 +1,0 @@
-id,name,model_id,group_id/id,operation,domain
-access_itbr_ai_pii_token_system,itbr_ai_pii_token system read,itbr.ai.pii.token,base.group_system,r,
