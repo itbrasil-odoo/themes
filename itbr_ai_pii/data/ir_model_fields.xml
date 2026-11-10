@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+	<!-- runs on every update: fields classified under older rules follow the current ones -->
+	<function model="ir.model.fields" name="_itbr_reclassify_ai_exposure"/>
+</odoo>

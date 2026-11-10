@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+	<record id="view_ir_model_fields_ai_exposure_list" model="ir.ui.view">
+		<field name="name">ir.model.fields.list.ai_exposure</field>
+		<field name="model">ir.model.fields</field>
+		<field name="arch" type="xml">
+			<list editable="bottom" create="0" delete="0" default_group_by="ai_exposure">
+				<field name="model" readonly="1"/>
+				<field name="name" readonly="1"/>
+				<field name="field_description" readonly="1"/>
+				<field name="ttype" readonly="1"/>
+				<field name="ai_exposure_auto" readonly="1"/>
+				<field name="ai_exposure_override"/>
+				<field name="ai_exposure" readonly="1"/>
+			</list>
+		</field>
+	</record>
+
+	<record id="view_ir_model_fields_ai_exposure_search" model="ir.ui.view">
+		<field name="name">ir.model.fields.search.ai_exposure</field>
+		<field name="model">ir.model.fields</field>
+		<field name="arch" type="xml">
+			<search>
+				<field name="name"/>
+				<field name="field_description"/>
+				<field name="model"/>
+				<filter name="overridden" string="With override" domain="[('ai_exposure_override', '!=', False)]"/>
+				<separator/>
+				<filter name="tokenize" string="Tokenized" domain="[('ai_exposure', '=', 'tokenize')]"/>
+				<filter name="block" string="Blocked" domain="[('ai_exposure', '=', 'block')]"/>
+				<group>
+					<filter name="group_exposure" string="Exposure" context="{'group_by': 'ai_exposure'}"/>
+					<filter name="group_model" string="Model" context="{'group_by': 'model'}"/>
+				</group>
+			</search>
+		</field>
+	</record>
+
+	<record id="action_ir_model_fields_ai_exposure" model="ir.actions.act_window">
+		<field name="name">AI field exposure</field>
+		<field name="res_model">ir.model.fields</field>
+		<field name="view_mode">list</field>
+		<field name="view_id" ref="view_ir_model_fields_ai_exposure_list"/>
+		<field name="search_view_id" ref="view_ir_model_fields_ai_exposure_search"/>
+	</record>
+
+	<menuitem
+		id="menu_ai_field_exposure"
+		name="AI field exposure"
+		parent="base.menu_custom"
+		action="action_ir_model_fields_ai_exposure"
+		sequence="90"
+		groups="base.group_system"
+	/>
+
+</odoo>
