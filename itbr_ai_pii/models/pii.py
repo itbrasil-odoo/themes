@@ -61,9 +61,12 @@ class ItbrAiPii(models.AbstractModel):
         return self.env['itbr.ai.pii.token']._enabled()
 
     @api.model
-    def _masker(self, external=False):
-        """Return a :class:`Masker` of tool results for the current user."""
-        return Masker(self.env, external=external)
+    def _masker(self, external=False, redact_persons=False):
+        """Return a :class:`Masker` of tool results for the current user.
+
+        ``redact_persons`` (external only): person names become ``[removido]``.
+        """
+        return Masker(self.env, external=external, redact_persons=redact_persons)
 
     @api.model
     def _mask_text(self, text, seen=None):

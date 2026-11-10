@@ -452,3 +452,55 @@ class TestRecords(TransactionCase):
         ])
         with patch.object(records, 'NAME_LOOKUP_CAP', 2):
             self.assertEqual(self._masker().mask_name('Mesmo Nome'), tok('NAME', 'Mesmo Nome'))
+
+    def _custom_field(self, name, ttype):
+        self.env['ir.model.fields'].create({
+            'model_id': self.env['ir.model']._get_id('res.partner'),
+            'name': name,
+            'field_description': name,
+            'ttype': ttype,
+        })
+
+    def test_blocked_numeric_aggregate_dropped(self):
+        self._custom_field('x_salary', 'float')
+        self.assertEqual(self._masker().level('res.partner', 'x_salary'), 'block')
+        self.person.x_salary = 9000.0
+        for external in (False, True):
+            [group] = self._group(
+                'res.partner', [('id', '=', self.person.id)], ['city'],
+                ['x_salary:max', 'x_salary:sum', '__count'], external=external,
+            )
+            self.assertNotIn('x_salary:max', group)
+            self.assertNotIn('x_salary:sum', group)
+            self.assertEqual(group['__count'], 1)
+
+    def test_redact_persons_for_external_sessions(self):
+        before = self.Token.sudo().search_count([])
+        masker = self.uenv['itbr.ai.pii']._masker(external=True, redact_persons=True)
+        rows = {
+            row['id']: row for row in masker.rows('res.partner', self.uenv['res.partner'].search_read(
+                [('id', 'in', (self.person | self.company | self.child | self.user.partner_id).ids)],
+                ['name', 'display_name', 'vat', 'parent_id', 'city'],
+            ))
+        }
+        person = rows[self.person.id]
+        self.assertEqual(person['name'], '[removido]')
+        self.assertEqual(person['display_name'], '[removido]')
+        self.assertNotIn('vat', person)
+        self.assertEqual(person['city'], 'Campinas')
+        self.assertEqual(rows[self.child.id]['parent_id'], [self.person.id, '[removido]'])
+        self.assertEqual(rows[self.company.id]['name'], 'ACME Ltda')
+        self.assertEqual(rows[self.user.partner_id.id]['name'], 'Vera Vendedora')
+        groups = masker.groups(
+            'res.partner', ['parent_id'], ['__count'],
+            self.uenv['res.partner'].formatted_read_group(
+                [('id', '=', self.child.id)], ['parent_id'], ['__count']
+            ),
+        )
+        self.assertEqual(list(groups[0]['parent_id']), [self.person.id, '[removido]'])
+        self.assertEqual(masker.mask_name('Maria Pessoa'), '[removido]')
+        self.assertNotIn('Maria Pessoa', json.dumps([rows, groups], default=str))
+        self.assertEqual(self.Token.sudo().search_count([]), before)
+        # MCP-style external callers keep names readable
+        [row] = self._read(self.person, ['name'], external=True)
+        self.assertEqual(row['name'], 'Maria Pessoa')

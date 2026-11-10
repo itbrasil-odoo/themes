@@ -5,7 +5,9 @@ the current user, and so do the names of person partners (customers and
 contacts), while the names of the team (internal users, employees) and of
 companies stay readable. Without a key the values go out as they are. For an
 external caller (which cannot reveal tokens) ``tokenize`` fields are dropped,
-no token is emitted and names stay real.
+no token is emitted and names stay real, unless ``redact_persons`` is set
+(a livechat/portal/public requester, where the result reaches a third party):
+then person names become ``[removido]`` while company and team names stay.
 """
 import datetime
 import numbers
@@ -13,6 +15,9 @@ import numbers
 from odoo import fields as odoo_fields
 
 from .detector import document_kind, normalize, valid_cnpj
+
+# What a person's name becomes for an external session (no token, no value)
+REDACTED = '[removido]'
 
 NAME_COPY_FIELDS = frozenset({'contact_name', 'partner_name', 'invoice_partner_display_name'})
 PARTNER_NAME_FIELDS = frozenset({'name', 'display_name', 'complete_name'})
@@ -84,11 +89,17 @@ def _is_empty(value):
 class Masker:
     """Mask rows of one tool call; caches exposure maps, person checks and tokens."""
 
-    def __init__(self, env, external=False):
+    def __init__(self, env, external=False, redact_persons=False):
         self.env = env
         self.external = bool(external)
         self.store = env['itbr.ai.pii.token']
         self.tokens = not self.external and env['itbr.ai.pii']._tokens_available()
+        self.redact = bool(
+            self.external and redact_persons
+            and env['ir.config_parameter'].sudo().get_bool('itbr_ai_pii.enabled', True)
+        )
+        # persons are told apart when their names are tokenized or redacted
+        self.persons = self.tokens or self.redact
         self.blocked = env['itbr.ai.pii']._blocked_models()
         self._exposure = {}
         self._persons = {}
@@ -129,6 +140,10 @@ class Masker:
 
     # -- tokens ---------------------------------------------------------
     def emit(self, kind, value):
+        if kind == 'NAME' and self.redact and not _is_empty(value) and not isinstance(value, bool):
+            if isinstance(value, (list, tuple)):
+                return [self.emit(kind, v) for v in value]
+            return REDACTED
         if not self.tokens or _is_empty(value):
             return value
         if isinstance(value, (list, tuple)):
@@ -153,7 +168,7 @@ class Masker:
     def load_persons(self, ids):
         """Classify partner ids at once: person (masked) or company/team (readable)."""
         missing = {i for i in ids if isinstance(i, int) and i not in self._persons}
-        if not missing or not self.tokens:
+        if not missing or not self.persons:
             return
         env = self.env(su=True, context={**self.env.context, 'active_test': False})
         partners = env[PARTNER].browse(sorted(missing)).exists()
@@ -178,7 +193,7 @@ class Masker:
             self._persons[pid] = pid in people and pid not in team
 
     def is_person(self, pid):
-        if not self.tokens or not isinstance(pid, int):
+        if not self.persons or not isinstance(pid, int):
             return False
         self.load_persons([pid])
         return self._persons.get(pid, False)
@@ -186,7 +201,7 @@ class Masker:
     def load_users(self, ids):
         """Classify user ids at once: portal/public users (``share``) are clients."""
         missing = {i for i in ids if isinstance(i, int) and i not in self._shared_users}
-        if not missing or not self.tokens:
+        if not missing or not self.persons:
             return
         users = self._sudo()[USERS].browse(sorted(missing)).exists()
         shared = set(users.filtered('share').ids)
@@ -194,7 +209,7 @@ class Masker:
             self._shared_users[uid] = uid in shared
 
     def is_client_user(self, uid):
-        if not self.tokens or not isinstance(uid, int):
+        if not self.persons or not isinstance(uid, int):
             return False
         self.load_users([uid])
         return self._shared_users.get(uid, False)
@@ -253,7 +268,7 @@ class Masker:
         Actions: ``('person', partner_id)``, ``('tokenize', field_name)``, ``('block',)``.
         Everything is read in one sudo pass over the rows.
         """
-        if not self.tokens and model_name != TRACKING:
+        if not self.persons and model_name != TRACKING:
             return {}
         model = self.env[model_name]
         keys = set().union(*rows) if rows else set()
@@ -338,7 +353,7 @@ class Masker:
             name: field.comodel_name for name, field in model_fields.items()
             if field.type == 'many2one' and field.comodel_name in PEOPLE_MODELS
         }
-        if self.tokens:
+        if self.persons:
             ids = {PARTNER: set(), USERS: set()}
             for row in rows:
                 if is_partner:
@@ -421,7 +436,7 @@ class Masker:
         Fails closed: a name no partner carries, that any person carries, or
         carried by more than ``NAME_LOOKUP_CAP`` partners, is tokenized.
         """
-        if not self.tokens or _is_empty(value) or isinstance(value, bool):
+        if not self.persons or _is_empty(value) or isinstance(value, bool):
             return value
         if isinstance(value, (list, tuple)):
             return [self.mask_name(v) for v in value]
@@ -451,7 +466,7 @@ class Masker:
             key: self.spec(model_name, fname)
             for key, fname in aggregates.items() if key != '__count'
         }
-        if self.tokens:
+        if self.persons:
             for spec, (_level, _model, field) in specs.items():
                 if field is not None and field.relational and field.comodel_name in PEOPLE_MODELS:
                     self.load_labels(field.comodel_name, [
@@ -488,9 +503,12 @@ class Masker:
                 if spec not in group:
                     continue
                 value = group[spec]
+                if level == 'block' or (level == 'tokenize' and self.external):
+                    group.pop(spec)  # even a count or a sum tells about the value
+                    continue
                 if isinstance(value, numbers.Number) and not isinstance(value, bool):
-                    continue  # counts and sums carry no personal value
-                if field is None or level == 'block' or (level == 'tokenize' and self.external):
+                    continue  # counts and sums of shown fields carry no personal value
+                if field is None:
                     group.pop(spec)
                 elif level == 'tokenize':
                     group[spec] = self.emit_field(field.name, value)
