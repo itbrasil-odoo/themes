@@ -72,12 +72,7 @@ class ItbrAiPii(models.AbstractModel):
         store = self.env['itbr.ai.pii.token']
         # _known_in orders by length desc, so the alternation tries the
         # longest value first at each position
-        known = []
-        folded = set()
-        for value, token in store._known_in(text):
-            if value.casefold() not in folded:
-                folded.add(value.casefold())
-                known.append((value, token))
+        known = store._known_in(text)
         if known:
             # one pass: existing tokens are kept and never matched inside
             pattern = re.compile(

@@ -24,6 +24,8 @@ RECORD_NAME_FIELDS = {'record_name': ('model', 'res_id'), 'res_name': ('res_mode
 # computed (not related) name fields that copy the name of a partner link
 COMPUTED_NAME_LINKS = {('mail.followers', 'display_name'): ['partner_id']}
 # group keys that are not values of a field; anything else unknown is dropped
+# partners looked up per bare name; more than this and the name is masked
+NAME_LOOKUP_CAP = 100
 GROUP_META_KEYS = frozenset({'__extra_domain', '__domain', '__count', '__fold', '__context', '__offset'})
 TRACKING = 'mail.tracking.value'
 TRACKING_VALUES = {
@@ -416,8 +418,8 @@ class Masker:
     def mask_name(self, value):
         """Mask a bare person name (no id): ``NAME#`` unless it names only companies or team.
 
-        Fails closed: a name no partner carries, or that any person carries, is
-        tokenized.
+        Fails closed: a name no partner carries, that any person carries, or
+        carried by more than ``NAME_LOOKUP_CAP`` partners, is tokenized.
         """
         if not self.tokens or _is_empty(value) or isinstance(value, bool):
             return value
@@ -426,9 +428,13 @@ class Masker:
         if not isinstance(value, str):
             return value
         if value not in self._names:
-            ids = self._sudo()[PARTNER].search([('name', '=', value)], limit=100).ids
-            self.load_persons(ids)
-            self._names[value] = not ids or any(self._persons.get(i, True) for i in ids)
+            ids = self._sudo()[PARTNER].search([('name', '=', value)], limit=NAME_LOOKUP_CAP + 1).ids
+            if not ids or len(ids) > NAME_LOOKUP_CAP:
+                # nobody, or too many to check them all: fail closed
+                self._names[value] = True
+            else:
+                self.load_persons(ids)
+                self._names[value] = any(self._persons.get(i, True) for i in ids)
         return self.emit('NAME', value) if self._names[value] else value
 
     def groups(self, model_name, groupby, aggregates, groups, unfold_model=None):

@@ -424,3 +424,15 @@ class TestRecords(TransactionCase):
             pii._mask_any(['João Silva'], touch=False)
             self.assertEqual(touch.call_count, 1)
         self.assertEqual(seen, {token})
+
+    def test_group_name_masked_when_lookup_hits_cap(self):
+        from ..tools import records
+        Partner = self.env['res.partner']
+        # the person is the oldest, so the default order (id desc) puts it past the cap
+        Partner.create({'name': 'Mesmo Nome'})
+        Partner.create([
+            {'name': 'Mesmo Nome', 'vat': '11.222.333/0001-81'},
+            {'name': 'Mesmo Nome', 'vat': '11.222.333/0001-81'},
+        ])
+        with patch.object(records, 'NAME_LOOKUP_CAP', 2):
+            self.assertEqual(self._masker().mask_name('Mesmo Nome'), tok('NAME', 'Mesmo Nome'))
