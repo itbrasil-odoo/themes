@@ -53,47 +53,72 @@ class ItbrAiPii(models.AbstractModel):
         return Masker(self.env, external=external)
 
     @api.model
-    def _mask_text(self, text):
+    def _mask_text(self, text, seen=None):
         """Mask personal data of free ``text`` with the current user's tokens.
 
         Values the user already holds a token for (names, addresses, documents,
-        dates) are swapped back to that token, whole words only and longest
-        first; then CPF, CNPJ, e-mail and phone are detected. Same input, same
-        output. Without tokens the text is returned as it is.
+        dates) are swapped back to that token, whole words only, ignoring case
+        and runs of whitespace, longest first; then CPF, CNPJ, e-mail and phone
+        are detected. Same input, same output. Without tokens the text is
+        returned as it is.
+
+        No write happens for the swapped values: their tokens are added to
+        ``seen`` (when given) and the caller renews them once with
+        ``itbr.ai.pii.token._touch(seen)``. Newly detected values are emitted,
+        which already renews them.
         """
         if not text or not isinstance(text, str) or not self._tokens_available():
             return text
         store = self.env['itbr.ai.pii.token']
-        known = {}
+        # _known_in orders by length desc, so the alternation tries the
+        # longest value first at each position
+        known = []
+        folded = set()
         for value, token in store._known_in(text):
-            known.setdefault(value, token)
+            if value.casefold() not in folded:
+                folded.add(value.casefold())
+                known.append((value, token))
         if known:
-            # one pass: existing tokens are kept, a value is never matched
-            # inside a token, nor inside a longer value already replaced
+            # one pass: existing tokens are kept and never matched inside
             pattern = re.compile(
-                '(?P<token>' + TOKEN_RE.pattern + ')|(?<!\\w)(?:'
-                + '|'.join(re.escape(value) for value in known)
-                + ')(?!\\w)'
+                '(?P<token>' + TOKEN_RE.pattern + ')|' + '|'.join(
+                    f'(?P<v{index}>(?<!\\w)'
+                    + r'\s+'.join(re.escape(word) for word in value.split())
+                    + '(?!\\w))'
+                    for index, (value, _token) in enumerate(known)
+                ),
+                re.IGNORECASE,
             )
-            used = set()
 
             def remask(match):
                 if match.group('token'):
                     return match.group(0)
-                used.add(known[match.group(0)])
-                return known[match.group(0)]
+                token = known[int(match.lastgroup[1:])][1]
+                if seen is not None:
+                    seen.add(token)
+                return token
 
             text = pattern.sub(remask, text)
-            store._touch(sorted(used))
         return tokenize_text(text, store._emit, self._email_domains())
 
     @api.model
-    def _mask_any(self, data):
-        """Apply :meth:`_mask_text` to every string of nested dicts and lists."""
+    def _mask_any(self, data, touch=True, seen=None):
+        """Apply :meth:`_mask_text` to every string of nested dicts and lists.
+
+        With ``touch`` the swapped tokens are renewed once at the end.
+        """
+        seen = set() if seen is None else seen
+        result = self._mask_walk(data, seen)
+        if touch and seen:
+            self.env['itbr.ai.pii.token']._touch(sorted(seen))
+        return result
+
+    @api.model
+    def _mask_walk(self, data, seen):
         if isinstance(data, str):
-            return self._mask_text(data)
+            return self._mask_text(data, seen=seen)
         if isinstance(data, dict):
-            return {key: self._mask_any(value) for key, value in data.items()}
+            return {key: self._mask_walk(value, seen) for key, value in data.items()}
         if isinstance(data, list):
-            return [self._mask_any(value) for value in data]
+            return [self._mask_walk(value, seen) for value in data]
         return data

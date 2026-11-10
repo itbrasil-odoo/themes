@@ -12,7 +12,7 @@ import numbers
 
 from odoo import fields as odoo_fields
 
-from .detector import document_kind, normalize
+from .detector import document_kind, normalize, valid_cnpj
 
 NAME_COPY_FIELDS = frozenset({'contact_name', 'partner_name', 'invoice_partner_display_name'})
 PARTNER_NAME_FIELDS = frozenset({'name', 'display_name', 'complete_name'})
@@ -92,6 +92,7 @@ class Masker:
         self._persons = {}
         self._shared_users = {}
         self._emitted = {}
+        self._names = {}
 
     # -- classification -------------------------------------------------
     def exposure(self, model_name):
@@ -154,10 +155,10 @@ class Masker:
             return
         env = self.env(su=True, context={**self.env.context, 'active_test': False})
         partners = env[PARTNER].browse(sorted(missing)).exists()
-        # Odoo 20 flags any partner with a VAT as a company; a CPF is a person's
-        people = set(partners.filtered(
-            lambda p: not p.is_company or document_kind(p.vat or '') == 'CPF'
-        ).ids)
+        # Fail closed: only a valid CNPJ proves a company. Odoo 20 flags any
+        # partner with a VAT as a company (a CPF or a foreign personal id too),
+        # so is_company is no evidence; anyone else is a person.
+        people = set(partners.filtered(lambda p: not valid_cnpj(p.vat or '')).ids)
         team = {
             user.partner_id.id
             for user in env['res.users'].search_fetch(
@@ -219,6 +220,31 @@ class Masker:
             return record.partner_id
         return record if record._name == PARTNER else record.browse()
 
+    def _name_link(self, model_name, field):
+        """Path to the partner/user whose name ``field`` copies, else ``None``.
+
+        ``[]`` means the record itself (a partner or user name field).
+        """
+        if field is None:
+            return None
+        if model_name in PEOPLE_MODELS and field.name in PARTNER_NAME_FIELDS:
+            return []
+        if (model_name, field.name) in COMPUTED_NAME_LINKS:
+            return COMPUTED_NAME_LINKS[(model_name, field.name)]
+        if field.type not in ('char', 'text') or not field.related:
+            return None
+        related = field.related
+        path = related.split('.') if isinstance(related, str) else list(related)
+        target = self.env[model_name]
+        for step in path[:-1]:
+            sub = target._fields.get(step)
+            if sub is None or not sub.relational:
+                return None
+            target = self.env[sub.comodel_name]
+        if target._name in PEOPLE_MODELS and path[-1] in PARTNER_NAME_FIELDS:
+            return path[:-1]
+        return None
+
     def _row_actions(self, model_name, rows):
         """Per row id, the fields whose value names a person or carries a tracked value.
 
@@ -231,21 +257,9 @@ class Masker:
         keys = set().union(*rows) if rows else set()
         related = {}
         for name in keys:
-            field = model._fields.get(name)
-            if field is None or field.type not in ('char', 'text') or not field.related:
-                continue
-            path = field.related.split('.') if isinstance(field.related, str) else list(field.related)
-            target = model
-            for step in path[:-1]:
-                sub = target._fields.get(step)
-                if sub is None or not sub.relational:
-                    target = None
-                    break
-                target = self.env[sub.comodel_name]
-            if target is not None and target._name in PEOPLE_MODELS and path[-1] in PARTNER_NAME_FIELDS:
-                related[name] = path[:-1]
-        for (link_model, name), path in COMPUTED_NAME_LINKS.items():
-            if link_model == model_name and name in keys:
+            path = self._name_link(model_name, model._fields.get(name))
+            # partner/user name fields of the record itself are handled apart
+            if path:
                 related[name] = path
         records_named = {
             name: pair for name, pair in RECORD_NAME_FIELDS.items()
@@ -377,8 +391,9 @@ class Masker:
     def spec(self, model_name, spec):
         """Resolve a groupby/aggregate spec to ``(level, model, field)`` of its last field.
 
-        ``level`` adds ``'name'`` for a partner name: grouped values carry no id to
-        tell a person from a company, so they are all tokenized.
+        ``level`` adds ``'name'`` for any copy of a partner or user name (the
+        name itself, a related or computed copy): grouped values carry no id,
+        so :meth:`mask_name` tells a person from a company by the name.
         """
         path = spec.split(':')[0].split('.')
         model = model_name
@@ -394,9 +409,27 @@ class Masker:
                 if not field.relational:
                     return 'allow', model, field
                 model = field.comodel_name
-        if model == PARTNER and field.name in PARTNER_NAME_FIELDS:
+        if self._name_link(model, field) is not None:
             return 'name', model, field
         return 'allow', model, field
+
+    def mask_name(self, value):
+        """Mask a bare person name (no id): ``NAME#`` unless it names only companies or team.
+
+        Fails closed: a name no partner carries, or that any person carries, is
+        tokenized.
+        """
+        if not self.tokens or _is_empty(value) or isinstance(value, bool):
+            return value
+        if isinstance(value, (list, tuple)):
+            return [self.mask_name(v) for v in value]
+        if not isinstance(value, str):
+            return value
+        if value not in self._names:
+            ids = self._sudo()[PARTNER].search([('name', '=', value)], limit=100).ids
+            self.load_persons(ids)
+            self._names[value] = not ids or any(self._persons.get(i, True) for i in ids)
+        return self.emit('NAME', value) if self._names[value] else value
 
     def groups(self, model_name, groupby, aggregates, groups, unfold_model=None):
         """Mask grouped results; ``aggregates`` is a list of specs or a ``{key: field}`` map.
@@ -437,8 +470,8 @@ class Masker:
                         else:
                             group[key] = self._mask_domain(group[key], field.name)
                 elif level == 'name':
-                    if self.tokens:
-                        group[spec] = self.emit('NAME', value)
+                    group[spec] = self.mask_name(value)
+                    if group[spec] != value:
                         group.pop('__extra_domain', None)
                         group.pop('__domain', None)
                 elif field is not None and field.relational and isinstance(value, dict):
@@ -456,7 +489,7 @@ class Masker:
                 elif level == 'tokenize':
                     group[spec] = self.emit_field(field.name, value)
                 elif level == 'name':
-                    group[spec] = self.emit('NAME', value)
+                    group[spec] = self.mask_name(value)
             if '__records' in group:
                 group['__records'] = self.rows(unfold_model or model_name, group['__records'] or [])
             if isinstance(group.get('__groups'), dict):

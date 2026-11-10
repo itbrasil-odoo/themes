@@ -89,17 +89,23 @@ class PiiToken(models.Model):
 
     @api.model
     def _known_in(self, text, kinds=('NAME', 'ADDR', 'DOC', 'DATE')):
-        """Return ``(value, token)`` pairs of the user whose value is in ``text``."""
+        """Return ``(value, token)`` pairs of the user whose value is in ``text``.
+
+        The match ignores case and runs of whitespace (values are stored with
+        single spaces). Case folding is the database's ``lower()``, so on a
+        ``C`` ctype database it folds ASCII letters only. Longest value first.
+        """
         if not text or not kinds:
             return []
+        probe = ' '.join(text.split())
         self.env.flush_all()
         self.env.cr.execute(
             'SELECT t.value, t.token FROM itbr_ai_pii_token t '
             'JOIN itbr_ai_pii_token_user_rel r ON r.token_id = t.id '
             'WHERE r.user_id = %(uid)s AND t.kind IN %(kinds)s '
-            'AND length(t.value) > 0 AND strpos(%(text)s, t.value) > 0 '
+            'AND length(t.value) > 0 AND strpos(lower(%(text)s), lower(t.value)) > 0 '
             'ORDER BY length(t.value) DESC, t.id',
-            {'uid': self.env.uid, 'kinds': tuple(kinds), 'text': text},
+            {'uid': self.env.uid, 'kinds': tuple(kinds), 'text': probe},
         )
         return [(value, token) for value, token in self.env.cr.fetchall()]
 

@@ -364,3 +364,63 @@ class TestRecords(TransactionCase):
             self._masker(external=True).mask_label([self.person.id, 'Maria Pessoa']),
             [self.person.id, 'Maria Pessoa'],
         )
+
+    # -- fix round 1 ----------------------------------------------------
+    def test_group_related_person_name_tokenized(self):
+        domain = [('id', 'in', (self.person | self.company).ids)]
+        groups = self._group('res.partner', domain, ['commercial_company_name'])
+        labels = {g['commercial_company_name'] for g in groups}
+        self.assertEqual(labels, {tok('NAME', 'Maria Pessoa'), 'ACME Ltda'})
+        self.assertNotIn('Maria Pessoa', json.dumps(groups, default=str))
+        [group] = self._group(
+            'res.partner', [('id', '=', self.person.id)], ['is_company'],
+            ['commercial_company_name:array_agg'],
+        )
+        self.assertEqual(group['commercial_company_name:array_agg'], [tok('NAME', 'Maria Pessoa')])
+
+    def test_group_users_name_tokenized(self):
+        portal = new_test_user(
+            self.env, login='portal3@cliente.com.br', name='Pedro Portal', groups='base.group_portal'
+        )
+        groups = self._masker(env=self.env).groups(
+            'res.users', ['name'], [],
+            self.env['res.users'].formatted_read_group(
+                [('id', 'in', [portal.id, self.user.id])], ['name'], []
+            ),
+        )
+        labels = {g['name'] for g in groups}
+        self.assertEqual(labels, {tok('NAME', 'Pedro Portal'), 'Vera Vendedora'})
+
+    def test_person_without_company_evidence_masked(self):
+        Partner = self.env['res.partner']
+        foreign = Partner.create({'name': 'John Foreign', 'vat': 'DE123456789'})
+        plain = Partner.create({'name': 'Plain Person'})
+        bad_cnpj = Partner.create({'name': 'Bad Cnpj', 'vat': '11.222.333/0001-00'})
+        rows = {r['id']: r['name'] for r in self._read(foreign | plain | bad_cnpj | self.company, ['name'])}
+        self.assertEqual(rows[foreign.id], tok('NAME', 'John Foreign'))
+        self.assertEqual(rows[plain.id], tok('NAME', 'Plain Person'))
+        self.assertEqual(rows[bad_cnpj.id], tok('NAME', 'Bad Cnpj'))
+        self.assertEqual(rows[self.company.id], 'ACME Ltda')
+
+    def test_remask_case_and_whitespace_insensitive(self):
+        pii = self.uenv['itbr.ai.pii']
+        token = self.uenv['itbr.ai.pii.token']._emit('NAME', 'João Silva')
+        for text in ('JOÃO SILVA', 'joão silva', 'João\nSilva', 'João   Silva'):
+            self.assertEqual(pii._mask_text(f'Fale com {text}.'), f'Fale com {token}.')
+        self.assertEqual(pii._mask_text('JoãoSilva'), 'JoãoSilva')
+
+    def test_mask_text_does_not_touch(self):
+        pii = self.uenv['itbr.ai.pii']
+        Token = type(self.uenv['itbr.ai.pii.token'])
+        token = self.uenv['itbr.ai.pii.token']._emit('NAME', 'João Silva')
+        seen = set()
+        with patch.object(Token, '_touch', autospec=True) as touch:
+            pii._mask_text('Fale com João Silva', seen=seen)
+            pii._mask_text('Fale com João Silva')
+            touch.assert_not_called()
+            pii._mask_any(['João Silva', {'a': 'João Silva'}])
+            self.assertEqual(touch.call_count, 1)
+            self.assertEqual(list(touch.call_args.args[1]), [token])
+            pii._mask_any(['João Silva'], touch=False)
+            self.assertEqual(touch.call_count, 1)
+        self.assertEqual(seen, {token})
