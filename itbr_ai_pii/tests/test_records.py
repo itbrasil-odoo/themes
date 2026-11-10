@@ -121,6 +121,22 @@ class TestRecords(TransactionCase):
         self.assertEqual(pii._mask_text('Banana e Mariana'), 'Banana e Mariana')
         self.assertNotIn('Ana', pii._mask_text('Fale com Ana.'))
 
+    def test_remask_revealed_bare_values(self):
+        pii = self.uenv['itbr.ai.pii']
+        store = self.uenv['itbr.ai.pii.token']
+        phone = store._emit('PHONE', '5511987654321')
+        email = store._emit('EMAIL', 'joao@cliente.com.br')
+        cpf = store._emit('CPF', '52998224725')
+        self.assertEqual(pii._mask_text('Ligue 5511987654321.'), f'Ligue {phone}.')
+        self.assertEqual(
+            pii._mask_text("[('phone','=','5511987654321')]"), f"[('phone','=','{phone}')]"
+        )
+        self.assertEqual(pii._mask_text('Mande a JOAO@cliente.com.br.'), f'Mande a {email}.')
+        self.assertEqual(pii._mask_text('CPF 52998224725'), f'CPF {cpf}')
+        # whole numbers and addresses only
+        self.assertEqual(pii._mask_text('9955119876543210'), '9955119876543210')
+        self.assertNotIn(email, pii._mask_text('x.joao@cliente.com.br'))
+
     def test_mask_text_is_stable(self):
         pii = self.uenv['itbr.ai.pii']
         self.uenv['itbr.ai.pii.token']._emit('NAME', 'João Silva')

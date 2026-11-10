@@ -121,3 +121,55 @@ class TestTokenStore(TransactionCase):
         self.Token._touch([token])
         record.invalidate_recordset()
         self.assertGreater(record.last_emitted, fields.Datetime.now() - timedelta(days=1))
+
+    def _last_emitted(self, token):
+        record = self.Token.sudo().search([('token', '=', token)])
+        record.invalidate_recordset()
+        return record, record.last_emitted
+
+    def test_reemit_within_a_day_does_not_renew(self):
+        token = self.Token._emit('CPF', '52998224725')
+        record, _when = self._last_emitted(token)
+        recent = fields.Datetime.now() - timedelta(hours=2)
+        record.last_emitted = recent
+        self.env.flush_all()
+        self.assertEqual(self.Token.with_user(self.user_a)._emit('CPF', '52998224725'), token)
+        self.assertEqual(self._last_emitted(token)[1], recent)
+        # linking a new user still happens
+        self.assertEqual(self.Token.with_user(self.user_a)._reveal(token), '52998224725')
+        record.last_emitted = fields.Datetime.now() - timedelta(days=2)
+        self.env.flush_all()
+        self.Token._emit('CPF', '52998224725')
+        self.assertGreater(self._last_emitted(token)[1], recent)
+
+    def test_touch_within_a_day_does_not_renew(self):
+        token = self.Token._emit('CPF', '52998224725')
+        record, _when = self._last_emitted(token)
+        recent = fields.Datetime.now() - timedelta(hours=2)
+        record.last_emitted = recent
+        self.env.flush_all()
+        self.Token._touch([token])
+        self.assertEqual(self._last_emitted(token)[1], recent)
+
+    def test_known_in_covers_every_kind(self):
+        tokens = {
+            kind: self.Token._emit(kind, value)
+            for kind, value in (
+                ('CPF', '52998224725'),
+                ('CNPJ', '11222333000181'),
+                ('EMAIL', 'ana@cliente.com.br'),
+                ('PHONE', '5511987654321'),
+            )
+        }
+        found = dict(self.Token._known_in(
+            'cpf 52998224725 cnpj 11222333000181 ana@cliente.com.br 5511987654321'
+        ))
+        self.assertEqual(
+            found,
+            {
+                '52998224725': tokens['CPF'],
+                '11222333000181': tokens['CNPJ'],
+                'ana@cliente.com.br': tokens['EMAIL'],
+                '5511987654321': tokens['PHONE'],
+            },
+        )

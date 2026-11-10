@@ -12,6 +12,19 @@ PARAM_BLOCKED_MODELS = 'itbr_ai_pii.blocked_models'
 PARAM_EMAIL_DOMAINS = 'itbr_ai_pii.email_domains'
 
 
+def _known_pattern(value, token):
+    """Regex of a value already emitted as ``token``, as a whole word.
+
+    Words may be split by any run of whitespace. An e-mail must not be the
+    tail of a longer address; other kinds (digits included) must not touch
+    another word character.
+    """
+    body = r'\s+'.join(re.escape(word) for word in value.split())
+    if token.startswith('EMAIL#'):
+        return r'(?<![\w.+-])' + body + r'(?![\w-])'
+    return r'(?<!\w)' + body + r'(?!\w)'
+
+
 class ItbrAiPii(models.AbstractModel):
     _name = 'itbr.ai.pii'
     _description = 'AI personal data protection (facade)'
@@ -56,8 +69,9 @@ class ItbrAiPii(models.AbstractModel):
     def _mask_text(self, text, seen=None):
         """Mask personal data of free ``text`` with the current user's tokens.
 
-        Values the user already holds a token for (names, addresses, documents,
-        dates) are swapped back to that token, whole words only, ignoring case
+        Values the user already holds a token for (any kind: a revealed phone
+        or CPF comes back as bare digits the detector would miss) are swapped
+        back to that token, whole words only, ignoring case
         and runs of whitespace, longest first; then CPF, CNPJ, e-mail and phone
         are detected. Same input, same output. Without tokens the text is
         returned as it is.
@@ -77,10 +91,8 @@ class ItbrAiPii(models.AbstractModel):
             # one pass: existing tokens are kept and never matched inside
             pattern = re.compile(
                 '(?P<token>' + TOKEN_RE.pattern + ')|' + '|'.join(
-                    f'(?P<v{index}>(?<!\\w)'
-                    + r'\s+'.join(re.escape(word) for word in value.split())
-                    + '(?!\\w))'
-                    for index, (value, _token) in enumerate(known)
+                    f'(?P<v{index}>' + _known_pattern(value, token) + ')'
+                    for index, (value, token) in enumerate(known)
                 ),
                 re.IGNORECASE,
             )
